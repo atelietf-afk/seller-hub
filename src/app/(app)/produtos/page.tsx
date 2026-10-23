@@ -2,18 +2,18 @@ import Link from "next/link";
 import { saveCost } from "../../actions";
 import { NoAccount } from "../NoAccount";
 import { SeverityBadge } from "@/components/Severity";
-import { brl, int, pct } from "@/lib/format";
+import { brl, decimal, int, pct } from "@/lib/format";
 import { buildReport } from "@/lib/report";
 import { currentAccount } from "@/lib/session";
 
 const PERIODS = [7, 15, 30];
 
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ dias?: string }> }) {
-  const { db, account } = await currentAccount();
+  const { account } = await currentAccount();
   if (!account) return <NoAccount />;
   const dias = Number((await searchParams).dias);
   const period = PERIODS.includes(dias) ? dias : 30;
-  const report = await buildReport(db, account.id, account.owner_id, period);
+  const report = await buildReport(account.id, account.owner_id, period);
 
   return (
     <div className="space-y-4">
@@ -80,7 +80,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     <input type="hidden" name="itemId" value={f.itemId} />
                     <input
                       name="unitCost"
-                      defaultValue={f.unitCost ?? ""}
+                      defaultValue={f.unitCost != null ? decimal(f.unitCost) : ""}
                       inputMode="decimal"
                       placeholder="R$"
                       aria-label={`Custo de ${f.title}`}

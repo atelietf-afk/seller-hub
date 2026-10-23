@@ -1,5 +1,6 @@
 import "server-only";
-import { adminClient } from "@/lib/supabase/admin";
+import { accountByMlUser } from "@/lib/data/accounts";
+import { one, query } from "@/lib/db";
 import { pushEvents, upsertItems, upsertOrder, upsertQuestion } from "./store";
 import { apiFor } from "./tokens";
 import type { MlNotification } from "./types";
@@ -12,9 +13,8 @@ const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", curren
  * na API com o token da conta.
  */
 export async function processNotification(notificationId: string, n: MlNotification) {
-  const db = adminClient();
   try {
-    const { data: account } = await db.from("ml_accounts").select("id, ml_user_id").eq("ml_user_id", n.user_id).maybeSingle();
+    const account = await accountByMlUser(n.user_id);
     if (!account) throw new Error(`Nenhuma conta para o usuário ${n.user_id}`);
     const api = apiFor(account.id);
     const sellerId = Number(account.ml_user_id);
@@ -68,7 +68,7 @@ export async function processNotification(notificationId: string, n: MlNotificat
       }
       case "items": {
         const item = await api.item(id);
-        const { data: before } = await db.from("items").select("status, price").eq("id", item.id).maybeSingle();
+        const before = await one<{ status: string }>("select status from items where id = $1", [item.id]);
         await upsertItems(account.id, [item]);
         if (before && before.status !== item.status) {
           await pushEvents(account.id, [
@@ -88,12 +88,9 @@ export async function processNotification(notificationId: string, n: MlNotificat
         // Tópico ainda não tratado: fica registrado em ml_notifications.
         break;
     }
-    await db.from("ml_notifications").update({ processed_at: new Date().toISOString() }).eq("id", notificationId);
+    await query("update ml_notifications set processed_at = now(), error = null where id = $1", [notificationId]);
   } catch (err) {
-    await db
-      .from("ml_notifications")
-      .update({ error: err instanceof Error ? err.message : String(err) })
-      .eq("id", notificationId);
+    await query("update ml_notifications set error = $2 where id = $1", [notificationId, err instanceof Error ? err.message : String(err)]);
     throw err;
   }
 }

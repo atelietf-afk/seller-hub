@@ -2,27 +2,27 @@ import Link from "next/link";
 import { markEventsRead, summarizeNow, syncNow } from "../../actions";
 import { NoAccount } from "../NoAccount";
 import { Kpi } from "@/components/Kpi";
-import { LiveFeed, type FeedEvent } from "@/components/LiveFeed";
+import { LiveFeed } from "@/components/LiveFeed";
 import { SalesChart } from "@/components/SalesChart";
 import { SeverityBadge } from "@/components/Severity";
 import { SubmitButton } from "@/components/SubmitButton";
-import type { DailySummary } from "@/lib/ai/summary";
+import { latestSummary, recentEvents } from "@/lib/data/accounts";
 import { brl, change, int, pct } from "@/lib/format";
 import { buildReport } from "@/lib/report";
 import { currentAccount } from "@/lib/session";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ conectado?: string }> }) {
-  const { db, account } = await currentAccount();
+  const { account } = await currentAccount();
   if (!account) return <NoAccount />;
   const { conectado } = await searchParams;
 
-  const [report, eventsQ, summaryQ] = await Promise.all([
-    buildReport(db, account.id, account.owner_id, 7),
-    db.from("events").select("*").eq("account_id", account.id).order("created_at", { ascending: false }).limit(30),
-    db.from("daily_summaries").select("*").eq("account_id", account.id).order("day", { ascending: false }).limit(1).maybeSingle(),
+  const [report, events, summaryRow] = await Promise.all([
+    buildReport(account.id, account.owner_id, 7),
+    recentEvents(account.id),
+    latestSummary(account.id),
   ]);
   const t = report.totals;
-  const summary = summaryQ.data?.content as DailySummary | undefined;
+  const summary = summaryRow?.content;
   const attention = report.funnel
     .flatMap((f) => f.diagnoses.filter((d) => d.severity === "critical" || d.severity === "warning").map((d) => ({ ...d, item: f })))
     .sort((a, b) => (a.severity === "critical" ? -1 : 1) - (b.severity === "critical" ? -1 : 1))
@@ -60,12 +60,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <Kpi label="Perguntas sem resposta" value={int(report.unansweredQuestions)} hint="responda rápido: ajuda a vender" />
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="space-y-6 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <section className="min-w-0 space-y-6 lg:col-span-2">
           <div className="rounded-xl border border-line bg-surface p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="font-semibold">Resumo do dia</h2>
-              {summaryQ.data && <span className="text-xs text-muted">{new Date(summaryQ.data.created_at).toLocaleString("pt-BR")}</span>}
+              {summaryRow && <span className="text-xs text-muted">{new Date(summaryRow.created_at).toLocaleString("pt-BR")}</span>}
               <form action={summarizeNow} className="ml-auto">
                 <SubmitButton pending="Analisando…">{summary ? "Atualizar análise" : "Gerar análise"}</SubmitButton>
               </form>
@@ -127,14 +127,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         </section>
 
-        <section className="rounded-xl border border-line bg-surface p-4">
+        <section className="min-w-0 rounded-xl border border-line bg-surface p-4">
           <div className="mb-1 flex items-center">
             <h2 className="font-semibold">Central ao vivo</h2>
             <form action={markEventsRead} className="ml-auto">
               <button className="text-xs text-muted hover:text-ink">Marcar como lido</button>
             </form>
           </div>
-          <LiveFeed accountId={account.id} initial={(eventsQ.data ?? []) as FeedEvent[]} />
+          <LiveFeed accountId={account.id} initial={events} />
         </section>
       </div>
     </div>

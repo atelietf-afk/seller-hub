@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
+import { one } from "@/lib/db";
 import { processNotification } from "@/lib/ml/notifications";
 import type { MlNotification } from "@/lib/ml/types";
-import { adminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 60;
 
@@ -17,13 +17,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 
-  const { data, error } = await adminClient()
-    .from("ml_notifications")
-    .insert({ topic: n.topic, resource: n.resource, ml_user_id: n.user_id, attempts: n.attempts ?? null })
-    .select("id")
-    .single();
-  if (error) return NextResponse.json({ ok: false }, { status: 500 }); // o ML reenvia
+  const row = await one<{ id: string }>(
+    "insert into ml_notifications (topic, resource, ml_user_id, attempts) values ($1, $2, $3, $4) returning id",
+    [n.topic, n.resource, n.user_id, n.attempts ?? null],
+  ).catch(() => null);
+  if (!row) return NextResponse.json({ ok: false }, { status: 500 }); // o ML reenvia
 
-  after(() => processNotification(data.id, n).catch((err) => console.error("Notificação falhou", n.resource, err)));
+  after(() => processNotification(row.id, n).catch((err) => console.error("Notificação falhou", n.resource, err)));
   return NextResponse.json({ ok: true });
 }

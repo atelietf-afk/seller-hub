@@ -1,19 +1,20 @@
 import "server-only";
-import { cache } from "react";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient } from "./supabase/server";
+import { cache } from "react";
+import { auth } from "./auth";
+import { accountsOf } from "./data/accounts";
 
-// Camada de acesso: toda página passa por aqui para saber quem é o usuário e qual conta ele vê.
+// Camada de acesso: toda página e ação passa por aqui para saber quem é o usuário e qual conta ele vê.
 
 export const currentUser = cache(async () => {
-  const db = await createClient();
-  const { data } = await db.auth.getUser();
-  if (!data.user) redirect("/login");
-  return { db, user: data.user };
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) redirect("/login");
+  return session.user;
 });
 
 export const currentAccount = cache(async () => {
-  const { db, user } = await currentUser();
-  const { data: accounts } = await db.from("ml_accounts").select("*").order("created_at");
-  return { db, user, account: accounts?.[0] ?? null, accounts: accounts ?? [] };
+  const user = await currentUser();
+  const accounts = await accountsOf(user.id);
+  return { user, account: accounts[0] ?? null, accounts };
 });

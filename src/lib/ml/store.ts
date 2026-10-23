@@ -1,5 +1,5 @@
 import "server-only";
-import { adminClient } from "@/lib/supabase/admin";
+import { one, query } from "@/lib/db";
 import type { MlApi } from "./api";
 import type { MlItem, MlOrder, MlQuestion } from "./types";
 
@@ -25,12 +25,17 @@ export function itemRow(accountId: string, i: MlItem) {
   };
 }
 
+const ITEM_COLUMNS = Object.keys(itemRow("", { id: "", title: "", price: 0, available_quantity: 0, sold_quantity: 0, status: "" }));
+
 export async function upsertItems(accountId: string, items: MlItem[]) {
+  const cols = ITEM_COLUMNS.join(", ");
+  const updates = ITEM_COLUMNS.filter((c) => c !== "id").map((c) => `${c} = excluded.${c}`).join(", ");
   for (let i = 0; i < items.length; i += 500) {
-    const { error } = await adminClient()
-      .from("items")
-      .upsert(items.slice(i, i + 500).map((it) => itemRow(accountId, it)));
-    if (error) throw error;
+    await query(
+      `insert into items (${cols}) select ${cols} from json_populate_recordset(null::items, $1)
+       on conflict (id) do update set ${updates}`,
+      [JSON.stringify(items.slice(i, i + 500).map((it) => itemRow(accountId, it)))],
+    );
   }
 }
 
@@ -46,24 +51,16 @@ async function sellerShippingCost(api: MlApi, order: MlOrder, sellerId: number):
 }
 
 export async function upsertOrder(api: MlApi, accountId: string, sellerId: number, order: MlOrder) {
-  const db = adminClient();
-  const { data: existing } = await db.from("orders").select("shipping_cost").eq("id", order.id).maybeSingle();
-  const shippingCost =
-    existing?.shipping_cost != null ? existing.shipping_cost : await sellerShippingCost(api, order, sellerId);
+  const existing = await one<{ shipping_cost: number | null }>("select shipping_cost from orders where id = $1", [order.id]);
+  const shippingCost = existing?.shipping_cost != null ? existing.shipping_cost : await sellerShippingCost(api, order, sellerId);
 
-  const { error } = await db.from("orders").upsert({
-    id: order.id,
-    account_id: accountId,
-    status: order.status,
-    date_created: order.date_created,
-    total_amount: order.total_amount,
-    shipping_id: order.shipping?.id ?? null,
-    shipping_cost: shippingCost,
-    buyer_id: order.buyer?.id ?? null,
-    updated_at: new Date().toISOString(),
-  });
-  if (error) throw error;
-
+  await query(
+    `insert into orders (id, account_id, status, date_created, total_amount, shipping_id, shipping_cost, buyer_id)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)
+     on conflict (id) do update set status = excluded.status, total_amount = excluded.total_amount,
+       shipping_cost = excluded.shipping_cost, updated_at = now()`,
+    [order.id, accountId, order.status, order.date_created, order.total_amount, order.shipping?.id ?? null, shippingCost, order.buyer?.id ?? null],
+  );
   const lines = order.order_items.map((l) => ({
     order_id: order.id,
     item_id: l.item.id,
@@ -72,26 +69,24 @@ export async function upsertOrder(api: MlApi, accountId: string, sellerId: numbe
     unit_price: l.unit_price,
     sale_fee: l.sale_fee ?? 0,
   }));
-  const { error: linesError } = await db.from("order_items").upsert(lines);
-  if (linesError) throw linesError;
+  await query(
+    `insert into order_items select * from json_populate_recordset(null::order_items, $1)
+     on conflict (order_id, item_id) do update set quantity = excluded.quantity, unit_price = excluded.unit_price,
+       sale_fee = excluded.sale_fee, title = excluded.title`,
+    [JSON.stringify(lines)],
+  );
   return { isNew: !existing };
 }
 
 export async function upsertQuestion(accountId: string, q: MlQuestion) {
-  const { data: existing } = await adminClient().from("questions").select("id").eq("id", q.id).maybeSingle();
-  const { error } = await adminClient()
-    .from("questions")
-    .upsert({
-      id: q.id,
-      account_id: accountId,
-      item_id: q.item_id,
-      text: q.text,
-      status: q.status,
-      answer: q.answer?.text ?? null,
-      date_created: q.date_created,
-    });
-  if (error) throw error;
-  return { isNew: !existing };
+  const rows = await query<{ inserted: boolean }>(
+    `insert into questions (id, account_id, item_id, text, status, answer, date_created)
+     values ($1, $2, $3, $4, $5, $6, $7)
+     on conflict (id) do update set status = excluded.status, answer = excluded.answer
+     returning (xmax = 0) as inserted`,
+    [q.id, accountId, q.item_id, q.text, q.status, q.answer?.text ?? null, q.date_created],
+  );
+  return { isNew: rows[0]?.inserted ?? false };
 }
 
 export interface NewEvent {
@@ -105,21 +100,31 @@ export interface NewEvent {
 
 export async function pushEvents(accountId: string, events: NewEvent[]) {
   if (!events.length) return;
-  const { error } = await adminClient()
-    .from("events")
-    .upsert(
-      events.map((e) => ({
-        account_id: accountId,
-        kind: e.kind,
-        severity: e.severity ?? "info",
-        title: e.title,
-        body: e.body ?? null,
-        item_id: e.itemId ?? null,
-        dedupe_key: e.dedupeKey ?? null,
-      })),
-      { onConflict: "account_id,dedupe_key", ignoreDuplicates: true },
-    );
-  if (error) throw error;
+  const rows = events.map((e) => ({
+    account_id: accountId,
+    kind: e.kind,
+    severity: e.severity ?? "info",
+    title: e.title,
+    body: e.body ?? null,
+    item_id: e.itemId ?? null,
+    dedupe_key: e.dedupeKey ?? null,
+  }));
+  await query(
+    `insert into events (account_id, kind, severity, title, body, item_id, dedupe_key)
+     select account_id, kind, severity, title, body, item_id, dedupe_key from json_populate_recordset(null::events, $1)
+     on conflict (account_id, dedupe_key) do nothing`,
+    [JSON.stringify(rows)],
+  );
+}
+
+export async function saveVisits(itemId: string, daily: { day: string; visits: number }[]) {
+  if (!daily.length) return;
+  await query(
+    `insert into item_visits_daily (item_id, day, visits)
+     select $1, (d->>'day')::date, (d->>'visits')::int from json_array_elements($2::json) d
+     on conflict (item_id, day) do update set visits = excluded.visits`,
+    [itemId, JSON.stringify(daily)],
+  );
 }
 
 export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

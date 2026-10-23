@@ -1,7 +1,8 @@
 import "server-only";
 import { reputationAlert, visitsDropAlerts, type VisitSeries } from "@/lib/analytics/alerts";
-import { adminClient } from "@/lib/supabase/admin";
-import { mapLimit, pushEvents, upsertItems, upsertOrder, upsertQuestion } from "./store";
+import { accountById, settingsOf } from "@/lib/data/accounts";
+import { query } from "@/lib/db";
+import { mapLimit, pushEvents, saveVisits, upsertItems, upsertOrder, upsertQuestion } from "./store";
 import { apiFor } from "./tokens";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -19,10 +20,9 @@ export interface SyncResult {
  * eles perderem e calcula os alertas que dependem de histórico.
  */
 export async function syncAccount(accountId: string): Promise<SyncResult> {
-  const db = adminClient();
-  const { data: account, error } = await db.from("ml_accounts").select("*").eq("id", accountId).single();
-  if (error || !account) throw new Error(`Conta ${accountId} não encontrada`);
-  const { data: settings } = await db.from("seller_settings").select("*").eq("owner_id", account.owner_id).maybeSingle();
+  const account = await accountById(accountId);
+  if (!account) throw new Error(`Conta ${accountId} não encontrada`);
+  const settings = await settingsOf(account.owner_id);
 
   const api = apiFor(accountId);
   const sellerId = Number(account.ml_user_id);
@@ -30,7 +30,7 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
 
   // Reputação
   const user = await api.user(sellerId);
-  const prevLevel = account.reputation?.level_id as string | undefined;
+  const prevLevel = account.reputation?.level_id;
   const repAlert = reputationAlert(prevLevel, user.seller_reputation?.level_id, today);
 
   // Anúncios
@@ -46,9 +46,7 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
       const w = await api.visits(item.id, 30);
       const daily = w.results.map((r) => ({ day: r.date.slice(0, 10), visits: r.total }));
       series.push({ itemId: item.id, title: item.title, daily });
-      if (daily.length) {
-        await db.from("item_visits_daily").upsert(daily.map((d) => ({ item_id: item.id, day: d.day, visits: d.visits })));
-      }
+      await saveVisits(item.id, daily);
     } catch (err) {
       console.warn(`Visitas de ${item.id} indisponíveis`, err);
     }
@@ -66,7 +64,7 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
   for (const q of questions) await upsertQuestion(accountId, q);
 
   // Alertas
-  const alerts = visitsDropAlerts(series, Number(settings?.visits_drop_alert ?? 0.3), today);
+  const alerts = visitsDropAlerts(series, settings.visits_drop_alert, today);
   if (repAlert) alerts.push(repAlert);
   const lowStock = active.filter((i) => i.available_quantity === 0);
   await pushEvents(accountId, [
@@ -81,10 +79,11 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
     })),
   ]);
 
-  await db
-    .from("ml_accounts")
-    .update({ nickname: user.nickname, reputation: user.seller_reputation ?? null, last_synced_at: new Date().toISOString() })
-    .eq("id", accountId);
+  await query("update ml_accounts set nickname = $2, reputation = $3, last_synced_at = now() where id = $1", [
+    accountId,
+    user.nickname,
+    JSON.stringify(user.seller_reputation ?? null),
+  ]);
 
   return { items: items.length, orders: orders.length, questions: questions.length, alerts: alerts.length + lowStock.length };
 }

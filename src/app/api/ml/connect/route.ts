@@ -1,15 +1,14 @@
 import { randomBytes } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { authorizationUrl } from "@/lib/ml/oauth";
-import { createClient } from "@/lib/supabase/server";
 
 // Inicia a conexão: manda o vendedor para a tela de autorização do Mercado Livre.
 export async function GET(request: Request) {
-  const db = await createClient();
-  const { data } = await db.auth.getUser();
-  if (!data.user) return NextResponse.redirect(new URL("/login", request.url));
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) return NextResponse.redirect(new URL("/login", request.url));
 
   const state = randomBytes(24).toString("base64url");
   (await cookies()).set("ml_oauth_state", state, {

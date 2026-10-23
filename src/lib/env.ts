@@ -5,5 +5,3 @@ export function env(name: string): string {
   if (!value) throw new Error(`Variável de ambiente ausente: ${name}`);
   return value;
 }
-
-export const appUrl = () => (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");

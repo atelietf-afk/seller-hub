@@ -1,10 +1,10 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { analyzeFunnel, type ItemFunnel } from "./analytics/funnel";
 import { lineProfit, sumProfits, type LineProfit } from "./analytics/profit";
+import { settingsOf } from "./data/accounts";
+import { one, query } from "./db";
 
-// Monta os números da conta num período. Recebe o cliente do banco para servir
-// tanto às páginas (cliente do usuário, com RLS) quanto ao cron (service role).
+// Monta os números da conta num período, para as telas e para a IA.
 
 export interface DayPoint {
   day: string;
@@ -25,32 +25,58 @@ export interface AccountReport {
 
 const COUNTED = new Set(["paid", "partially_refunded"]);
 
-export async function buildReport(db: SupabaseClient, accountId: string, ownerId: string, periodDays = 7): Promise<AccountReport> {
+interface ItemRow {
+  id: string;
+  title: string;
+  status: string;
+  price: number;
+  available_quantity: number;
+  thumbnail: string | null;
+  unit_cost: number | null;
+  extra_cost: number | null;
+}
+
+interface OrderRow {
+  id: number;
+  status: string;
+  date_created: string;
+  shipping_cost: number | null;
+  order_items: { item_id: string; quantity: number; unit_price: number; sale_fee: number }[];
+}
+
+/** O chamador garante que a conta é do usuário (ou que é uma rotina interna). */
+export async function buildReport(accountId: string, ownerId: string, periodDays = 7): Promise<AccountReport> {
   const now = Date.now();
   const since = new Date(now - periodDays * 86400_000);
   const prevSince = new Date(now - 2 * periodDays * 86400_000);
   const sinceDay = since.toISOString().slice(0, 10);
 
-  const [settingsQ, itemsQ, ordersQ, visitsQ, questionsQ] = await Promise.all([
-    db.from("seller_settings").select("*").eq("owner_id", ownerId).maybeSingle(),
-    db.from("items").select("*, product_costs(unit_cost, extra_cost)").eq("account_id", accountId),
-    db
-      .from("orders")
-      .select("id, status, date_created, shipping_cost, order_items(item_id, quantity, unit_price, sale_fee)")
-      .eq("account_id", accountId)
-      .gte("date_created", prevSince.toISOString()),
-    db.from("item_visits_daily").select("item_id, day, visits, items!inner(account_id)").eq("items.account_id", accountId).gte("day", sinceDay),
-    db.from("questions").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("status", "UNANSWERED"),
+  const [settings, items, orders, visits, questions] = await Promise.all([
+    settingsOf(ownerId),
+    query<ItemRow>(
+      `select i.id, i.title, i.status, i.price, i.available_quantity, i.thumbnail, c.unit_cost, c.extra_cost
+       from items i left join product_costs c on c.item_id = i.id where i.account_id = $1`,
+      [accountId],
+    ),
+    query<OrderRow>(
+      `select o.id, o.status, o.date_created, o.shipping_cost,
+         coalesce(json_agg(json_build_object('item_id', oi.item_id, 'quantity', oi.quantity, 'unit_price', oi.unit_price,
+           'sale_fee', oi.sale_fee)) filter (where oi.order_id is not null), '[]') as order_items
+       from orders o left join order_items oi on oi.order_id = o.id
+       where o.account_id = $1 and o.date_created >= $2 group by o.id`,
+      [accountId, prevSince.toISOString()],
+    ),
+    query<{ item_id: string; visits: number }>(
+      `select v.item_id, sum(v.visits)::int as visits from item_visits_daily v join items i on i.id = v.item_id
+       where i.account_id = $1 and v.day >= $2 group by v.item_id`,
+      [accountId, sinceDay],
+    ),
+    one<{ n: number }>("select count(*)::int as n from questions where account_id = $1 and status = 'UNANSWERED'", [accountId]),
   ]);
-  for (const q of [itemsQ, ordersQ, visitsQ]) if (q.error) throw q.error;
 
-  const taxRate = Number(settingsQ.data?.tax_rate ?? 0.06);
-  const items = itemsQ.data ?? [];
+  const taxRate = settings.tax_rate;
   const costs = new Map(
-    items.map((i) => {
-      const c = Array.isArray(i.product_costs) ? i.product_costs[0] : i.product_costs;
-      return [i.id as string, c ? { unitCost: Number(c.unit_cost), extraCost: Number(c.extra_cost) } : undefined];
-    }),
+    items.map((i) => [i.id, i.unit_cost != null ? { unitCost: i.unit_cost, extraCost: i.extra_cost ?? 0 } : undefined]),
   );
 
   const perItem = new Map<string, { orders: number; units: number; lines: LineProfit[] }>();
@@ -65,11 +91,11 @@ export async function buildReport(db: SupabaseClient, accountId: string, ownerId
   let previousOrders = 0;
   let units = 0;
 
-  for (const o of ordersQ.data ?? []) {
+  for (const o of orders) {
     if (!COUNTED.has(o.status)) continue;
     const isCurrent = new Date(o.date_created) >= since;
-    const lines = o.order_items ?? [];
-    const orderTotal = lines.reduce((a, l) => a + Number(l.unit_price) * l.quantity, 0);
+    const lines = o.order_items;
+    const orderTotal = lines.reduce((a, l) => a + l.unit_price * l.quantity, 0);
     if (isCurrent) currentOrders++;
     else previousOrders++;
 
@@ -79,9 +105,9 @@ export async function buildReport(db: SupabaseClient, accountId: string, ownerId
           orderId: o.id,
           itemId: l.item_id,
           quantity: l.quantity,
-          unitPrice: Number(l.unit_price),
-          saleFee: Number(l.sale_fee),
-          orderShippingCost: Number(o.shipping_cost ?? 0),
+          unitPrice: l.unit_price,
+          saleFee: l.sale_fee,
+          orderShippingCost: o.shipping_cost ?? 0,
           orderTotal,
         },
         costs.get(l.item_id),
@@ -109,7 +135,7 @@ export async function buildReport(db: SupabaseClient, accountId: string, ownerId
   }
 
   const visitsByItem = new Map<string, number>();
-  for (const v of visitsQ.data ?? []) visitsByItem.set(v.item_id, (visitsByItem.get(v.item_id) ?? 0) + v.visits);
+  for (const v of visits) visitsByItem.set(v.item_id, (visitsByItem.get(v.item_id) ?? 0) + v.visits);
 
   const funnel = analyzeFunnel(
     items.map((i) => {
@@ -127,10 +153,7 @@ export async function buildReport(db: SupabaseClient, accountId: string, ownerId
         margin: s && hasCost ? sumProfits(s.lines).margin : null,
       };
     }),
-    {
-      lowStockDays: Number(settingsQ.data?.low_stock_days ?? 7),
-      minMargin: Number(settingsQ.data?.min_margin ?? 0.1),
-    },
+    { lowStockDays: settings.low_stock_days, minMargin: settings.min_margin },
   ).map((f) => {
     const item = items.find((i) => i.id === f.itemId)!;
     const totals = sumProfits(perItem.get(f.itemId)?.lines ?? []);
@@ -138,7 +161,7 @@ export async function buildReport(db: SupabaseClient, accountId: string, ownerId
       ...f,
       revenue: totals.revenue,
       profit: totals.profit,
-      price: Number(item.price),
+      price: item.price,
       thumbnail: item.thumbnail,
       unitCost: costs.get(f.itemId)?.unitCost ?? null,
     };
@@ -146,15 +169,15 @@ export async function buildReport(db: SupabaseClient, accountId: string, ownerId
 
   const totals = sumProfits(current);
   const prevTotals = sumProfits(previous);
-  const visits = [...visitsByItem.values()].reduce((a, b) => a + b, 0);
+  const totalVisits = [...visitsByItem.values()].reduce((a, b) => a + b, 0);
 
   return {
     periodDays,
-    totals: { ...totals, orders: currentOrders, units, visits, conversion: visits > 0 ? currentOrders / visits : 0 },
+    totals: { ...totals, orders: currentOrders, units, visits: totalVisits, conversion: totalVisits > 0 ? currentOrders / totalVisits : 0 },
     previous: { revenue: prevTotals.revenue, orders: previousOrders, profit: prevTotals.profit },
     daily: [...daily.values()],
     funnel: funnel.sort((a, b) => b.revenue - a.revenue || b.visits - a.visits),
-    unansweredQuestions: questionsQ.count ?? 0,
+    unansweredQuestions: questions?.n ?? 0,
     missingCosts: funnel.filter((f) => f.status === "active" && !(f.unitCost && f.unitCost > 0)).length,
   };
 }

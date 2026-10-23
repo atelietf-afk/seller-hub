@@ -12,6 +12,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - Textos da interface e comentários em português do Brasil.
 - Regras de negócio ficam em `src/lib/analytics/` como funções puras, com teste em `test/`.
-- Toda leitura de página usa o cliente do usuário (`src/lib/session.ts`, respeita o RLS). O service role (`adminClient`) só em webhooks, cron e sincronização, sempre filtrando pela conta.
+- Não há RLS: o isolamento entre vendedores é feito no código. Páginas e ações pegam o usuário em `src/lib/session.ts` e só usam funções de `src/lib/data/` que filtram pelo `ownerId`. Funções só com `accountId` são para sync, webhooks e cron. Toda consulta nova que mexe em dados de vendedor precisa de teste em `test/db.test.ts`.
 - Tokens do ML nunca saem do servidor nem vão para o banco sem `encrypt()`.
-- Antes de enviar: `npm run typecheck && npm test && npm run lint`.
+- Mudança de banco = nova migração em `db/migrations/` (nunca editar uma já aplicada).
+- Antes de enviar: `npm run typecheck && npm test && npm run lint` (com `TEST_DATABASE_URL` para os testes de banco).

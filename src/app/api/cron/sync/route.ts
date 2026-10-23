@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { isCronRequest } from "@/lib/cron";
 import { syncAccount } from "@/lib/ml/sync";
-import { adminClient } from "@/lib/supabase/admin";
+import { allAccounts } from "@/lib/data/accounts";
 
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
   if (!isCronRequest(request)) return NextResponse.json({ ok: false }, { status: 401 });
-  const { data: accounts } = await adminClient().from("ml_accounts").select("id");
+  const accounts = await allAccounts();
   const results: Record<string, unknown> = {};
-  for (const a of accounts ?? []) {
+  for (const a of accounts) {
     try {
       results[a.id] = await syncAccount(a.id);
     } catch (err) {

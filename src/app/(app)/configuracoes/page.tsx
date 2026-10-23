@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { disconnectAccount, saveSettings } from "../../actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { settingsOf } from "@/lib/data/accounts";
 import { currentAccount } from "@/lib/session";
 
 const ML_MSG: Record<string, string> = {
@@ -9,10 +10,10 @@ const ML_MSG: Record<string, string> = {
 };
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ ml?: string }> }) {
-  const { db, user, accounts } = await currentAccount();
+  const { user, accounts } = await currentAccount();
   const { ml } = await searchParams;
-  const { data: s } = await db.from("seller_settings").select("*").eq("owner_id", user.id).maybeSingle();
-  const num = (v: unknown, d: number) => ((v == null ? d : Number(v)) * 100).toString();
+  const s = await settingsOf(user.id);
+  const num = (v: number) => String(Math.round(v * 10000) / 100);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -40,10 +41,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
       <form action={saveSettings} className="space-y-4 rounded-xl border border-line bg-surface p-5">
         <h2 className="font-semibold">Cálculo de lucro e alertas</h2>
-        <Field name="taxRate" label="Imposto sobre o faturamento (%)" hint="Ex.: Simples Nacional, alíquota efetiva." value={num(s?.tax_rate, 0.06)} />
-        <Field name="minMargin" label="Margem mínima aceitável (%)" hint="Abaixo disso o produto aparece como margem baixa." value={num(s?.min_margin, 0.1)} />
-        <Field name="visitsDrop" label="Alerta de queda de visitas (%)" hint="Semana atual contra a anterior." value={num(s?.visits_drop_alert, 0.3)} />
-        <Field name="lowStockDays" label="Alerta de estoque (dias)" hint="Avisa quando o estoque cobre menos dias que isso." value={String(s?.low_stock_days ?? 7)} />
+        <Field name="taxRate" label="Imposto sobre o faturamento (%)" hint="Ex.: Simples Nacional, alíquota efetiva." value={num(s.tax_rate)} />
+        <Field name="minMargin" label="Margem mínima aceitável (%)" hint="Abaixo disso o produto aparece como margem baixa." value={num(s.min_margin)} />
+        <Field name="visitsDrop" label="Alerta de queda de visitas (%)" hint="Semana atual contra a anterior." value={num(s.visits_drop_alert)} />
+        <Field name="lowStockDays" label="Alerta de estoque (dias)" hint="Avisa quando o estoque cobre menos dias que isso." value={String(s.low_stock_days)} />
         <SubmitButton pending="Salvando…">Salvar</SubmitButton>
       </form>
     </div>
