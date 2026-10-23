@@ -1,0 +1,38 @@
+import Link from "next/link";
+import { signOut } from "../actions";
+import { currentAccount } from "@/lib/session";
+
+const NAV = [
+  { href: "/dashboard", label: "Painel" },
+  { href: "/produtos", label: "Produtos e funil" },
+  { href: "/configuracoes", label: "Configurações" },
+];
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const { user, account } = await currentAccount();
+  return (
+    <div className="min-h-screen">
+      <header className="border-b border-line bg-surface">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+          <Link href="/dashboard" className="font-semibold">
+            Seller Hub
+          </Link>
+          <nav className="flex flex-wrap gap-4 text-sm text-ink-2">
+            {NAV.map((n) => (
+              <Link key={n.href} href={n.href} className="hover:text-ink">
+                {n.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="ml-auto flex items-center gap-3 text-sm text-muted">
+            <span className="hidden sm:inline">{account ? `ML: ${account.nickname}` : user.email}</span>
+            <form action={signOut}>
+              <button className="hover:text-ink">Sair</button>
+            </form>
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+    </div>
+  );
+}
