@@ -4,6 +4,7 @@ import { BestSellersTab } from "./BestSellersTab";
 import { CatalogTab } from "./CatalogTab";
 import { CompetitorsTab } from "./CompetitorsTab";
 import { KeywordsTab } from "./KeywordsTab";
+import { spyStatus } from "@/lib/data/spy";
 import { currentAccount } from "@/lib/session";
 
 const TABS = [
@@ -26,6 +27,8 @@ export default async function SpyPage({ searchParams }: { searchParams: Promise<
   if (!account) return <NoAccount />;
   const { aba, erro } = await searchParams;
   const tab = TABS.find((t) => t.id === aba)?.id ?? "palavras";
+  const status = await spyStatus(user.id, account.id);
+  const r = status?.spy_result;
 
   return (
     <div className="space-y-4">
@@ -34,6 +37,22 @@ export default async function SpyPage({ searchParams }: { searchParams: Promise<
         <p className="text-sm text-ink-2">
           O que os compradores buscam, o que os mais vendidos fazem e o que seus concorrentes mudam. Atualiza a cada sincronização.
         </p>
+        <p className="mt-1 text-xs text-muted">
+          {status?.spy_synced_at
+            ? `Última atualização: ${new Date(status.spy_synced_at).toLocaleString("pt-BR")}` +
+              (r ? ` · ${r.categories} categorias · ${r.catalog} anúncios no catálogo · ${r.competitors} concorrentes` : "")
+            : "Ainda não atualizado: clique em Sincronizar agora no Painel."}
+        </p>
+        {r && r.errors.length > 0 && (
+          <details className="mt-1 text-xs text-critical">
+            <summary>Algumas partes não puderam ser atualizadas ({r.errors.length})</summary>
+            <ul className="list-disc pl-5">
+              {r.errors.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          </details>
+        )}
       </div>
       <nav className="flex gap-1 overflow-x-auto rounded-lg border border-line bg-surface p-1 text-sm">
         {TABS.map((t) => (

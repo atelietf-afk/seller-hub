@@ -226,6 +226,8 @@ describe.skipIf(!url)("banco de dados", () => {
     }
 
     expect((await spyData.trendsFor(["MLB1051"])).map((t) => t.keyword)).toEqual(["fone bluetooth", "fone sem fio"]);
+    expect((await spyData.spyStatus(A, accA))?.spy_result).toMatchObject({ categories: 1, errors: [] });
+    expect(await spyData.spyStatus(B, accA)).toBeNull();
     expect(await spyData.bestSellersFor(["MLB1051"])).toMatchObject([{ id: "MLBX1", price: 89.9, title: "Fone MLBX1 Bluetooth Sem Fio" }]);
     expect(await spyData.catalogFor(A, accA)).toMatchObject([{ item_id: "MLBA1", status: "competing", price_to_win: 95 }]);
     expect(await spyData.catalogFor(B, accA)).toEqual([]);

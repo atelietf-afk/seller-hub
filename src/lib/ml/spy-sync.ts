@@ -193,6 +193,9 @@ export async function syncSpy(accountId: string): Promise<SpySyncResult> {
   })().catch(fail("concorrentes"));
 
   await pushEvents(accountId, events).catch(fail("eventos"));
+  await query("update ml_accounts set spy_synced_at = now(), spy_result = $2 where id = $1", [accountId, JSON.stringify(result)]).catch(
+    fail("status"),
+  );
   console.info("Espião sincronizado", accountId, JSON.stringify(result));
   return result;
 }

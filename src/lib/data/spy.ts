@@ -186,3 +186,12 @@ export async function saveTitleSuggestion(accountId: string, itemId: string, con
     [accountId, itemId, JSON.stringify(content)],
   );
 }
+
+export interface SpyStatus {
+  spy_synced_at: string | null;
+  spy_result: { categories: number; refreshed: number; catalog: number; competitors: number; errors: string[] } | null;
+}
+
+export function spyStatus(ownerId: string, accountId: string) {
+  return one<SpyStatus>("select spy_synced_at, spy_result from ml_accounts where id = $1 and owner_id = $2", [accountId, ownerId]);
+}
