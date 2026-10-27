@@ -22,6 +22,7 @@ export interface SellerSettings {
   low_stock_days: number;
   min_margin: number;
   store_info?: string | null;
+  whatsapp_phone?: string | null;
 }
 
 export interface EventRow {

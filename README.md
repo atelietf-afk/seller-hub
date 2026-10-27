@@ -13,7 +13,7 @@ Painel para vendedores de marketplaces. Começa pelo **Mercado Livre**. Shopee, 
 | **Alertas** | Queda de visitas semana contra semana, reputação piorando, anúncio ativo sem estoque. |
 | **Publicidade (Product Ads)** | Campanhas e produtos anunciados dos últimos 30 dias: investimento, vendas, ACOS, ROAS, TACOS, CTR e CPC. Cruza com o lucro real: mostra o **lucro após anúncios** e o **ACOS de equilíbrio** de cada produto, e aponta onde o anúncio dá prejuízo, onde vale escalar e onde gasta sem vender. |
 | **Espião** | **Palavras-chave**: buscas em alta na categoria e termos dos mais vendidos que faltam no seu título, com títulos sugeridos pela IA (até 60 caracteres, sem inventar características). **Mais vendidos**: top 20 de cada categoria sua, com preço comparado à mediana, frete grátis e Full. **Catálogo**: se você está ganhando a vitrine e o preço para ganhar, com alerta ao perder. **Concorrentes**: cole o link de um anúncio e acompanhe preço e situação dia a dia, com alerta quando baixarem o preço. |
-| **Relatórios semanal e mensal** | Gerados sozinhos (semanal toda segunda, mensal todo dia 1) ou na hora. Faturamento, vendas, ticket médio, lucro real e para onde foi o dinheiro (comissão, frete, imposto, custo, anúncios), publicidade, tráfego, produtos que mais faturaram, os que mais subiram e caíram, pontos de atenção e análise da IA. Página pronta para imprimir ou salvar em PDF. |
+| **Relatórios semanal e mensal** | Gerados sozinhos (semanal toda segunda, mensal todo dia 1) ou na hora. Faturamento, vendas, ticket médio, lucro real e para onde foi o dinheiro (comissão, frete, imposto, custo, anúncios), publicidade, tráfego, produtos que mais faturaram, os que mais subiram e caíram, pontos de atenção e análise da IA. Página pronta para imprimir ou salvar em PDF. Chegam também no **WhatsApp** (API oficial da Meta) com os números principais e o link do relatório. |
 | **Perguntas com IA** | Perguntas sem resposta da mais antiga para a mais nova, com o tempo de espera. A IA sugere a resposta usando o anúncio (ficha técnica, descrição, frete, estoque, garantia), as informações da loja e respostas anteriores, sem inventar: marca entre colchetes o que falta. Você revisa e envia ao ML. Bloqueia telefone, e-mail, links e redes sociais antes de enviar. |
 | **Resumo diário com IA** | O Claude lê os números da semana e explica o que mudou e o que fazer, em linguagem simples. |
 
@@ -50,6 +50,25 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
    (`BETTER_AUTH_URL` = a URL do app). Gere os segredos com `openssl rand -base64 32` e `openssl rand -hex 32` (CRON_SECRET).
 4. Abra o app, crie sua conta e vá em **Configurações → Conectar Mercado Livre**.
    Depois cadastre o custo dos produtos em **Produtos e funil**.
+
+5. **WhatsApp (opcional):** no [Meta for Developers](https://developers.facebook.com), crie um app do tipo *Empresa* com o produto
+   **WhatsApp** e um número só para o sistema. Em *WhatsApp Manager → Modelos de mensagem*, crie o modelo `relatorio_vendas`
+   (categoria **Utilidade**, idioma **Português (BR)**):
+   ```
+   Seu relatório {{1}} de {{2}} está pronto.
+
+   Faturamento: {{3}} ({{4}})
+   Pedidos: {{5}}
+   Lucro após anúncios: {{6}}
+
+   Destaque: {{7}}
+
+   Toque no botão para ver o relatório completo.
+   ```
+   Botão do tipo *Visitar site*, URL dinâmica `https://SEU-DOMINIO/relatorios/{{1}}` (exemplo: `weekly/2026-10-19`).
+   Depois de aprovado, configure `WHATSAPP_TOKEN` (token permanente de um usuário do sistema) e `WHATSAPP_PHONE_NUMBER_ID`
+   na Vercel, e cada vendedor cadastra o número dele em **Configurações**. O envio sai junto com o cron diário; se falhar,
+   tenta de novo nos dias seguintes (até 3 dias) e o motivo aparece no relatório.
 
 > **Histórico de pedidos:** a primeira sincronização traz 30 dias; depois, cada sincronização recua mais 30 dias (com limite de tempo)
 > até completar 120 dias, o suficiente para o relatório mensal e sua comparação. O relatório avisa quando o histórico ainda está incompleto.

@@ -10,6 +10,8 @@ export interface ReportRow {
   data: PeriodReportData;
   ai: DailySummary | null;
   created_at: string;
+  whatsapp_sent_at: string | null;
+  whatsapp_error: string | null;
 }
 
 export function listReports(ownerId: string, accountId: string) {
@@ -39,5 +41,23 @@ export async function saveReport(accountId: string, data: PeriodReportData, ai: 
      on conflict (account_id, kind, period_start) do update set period_end = excluded.period_end, data = excluded.data,
        ai = excluded.ai, created_at = now()`,
     [accountId, data.period.kind, data.period.start, data.period.end, JSON.stringify(data), ai ? JSON.stringify(ai) : null],
+  );
+}
+
+/** Relatórios recentes ainda não entregues no WhatsApp (uma tentativa por dia, por até 3 dias). */
+export function reportsToDeliver(accountId: string) {
+  return query<{ kind: "weekly" | "monthly"; period_start: string }>(
+    `select kind, period_start from reports
+     where account_id = $1 and whatsapp_sent_at is null and created_at > now() - interval '3 days'
+     order by period_start, kind`,
+    [accountId],
+  );
+}
+
+export async function markWhatsapp(accountId: string, kind: string, start: string, error: string | null) {
+  await query(
+    `update reports set whatsapp_sent_at = case when $4::text is null then now() else whatsapp_sent_at end, whatsapp_error = $4
+     where account_id = $1 and kind = $2 and period_start = $3`,
+    [accountId, kind, start, error],
   );
 }

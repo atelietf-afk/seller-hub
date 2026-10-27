@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { disconnectAccount, saveSettings } from "../../actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { formatWhatsappPhone } from "@/lib/analytics/whatsapp";
 import { settingsOf } from "@/lib/data/accounts";
 import { currentAccount } from "@/lib/session";
+import { whatsappConfigured } from "@/lib/whatsapp";
 
 const ML_MSG: Record<string, string> = {
   "estado-invalido": "A conexão expirou ou foi interrompida. Tente de novo.",
@@ -11,6 +13,7 @@ const ML_MSG: Record<string, string> = {
   "codigo-invalido": "O link de autorização expirou ou já foi usado. Clique em Conectar para começar de novo.",
   "contato-na-loja":
     "As informações da loja não foram salvas: tire telefone, e-mail, links ou redes sociais (o Mercado Livre proíbe nas respostas).",
+  "whatsapp-invalido": "As configurações não foram salvas: o número de WhatsApp não parece válido. Use DDD + número, ex.: (11) 98765-4321.",
   "sem-acesso-offline":
     "O app no Mercado Livre está sem a permissão de acesso offline (offline_access). Ative-a no DevCenter e conecte de novo.",
 };
@@ -68,6 +71,22 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           />
           <span className="text-xs text-muted">
             A IA usa isso para responder sobre prazo, garantia, nota fiscal e trocas. Não coloque telefone, e-mail ou links.
+          </span>
+        </label>
+        <label className="block text-sm">
+          <span className="font-medium">WhatsApp para os relatórios</span>
+          <input
+            name="whatsappPhone"
+            type="tel"
+            autoComplete="tel"
+            defaultValue={s.whatsapp_phone ? formatWhatsappPhone(s.whatsapp_phone) : ""}
+            placeholder="(11) 98765-4321"
+            className="mt-1 block w-56 rounded-md border border-line bg-bg px-3 py-1.5"
+          />
+          <span className="text-xs text-muted">
+            O relatório semanal (segunda) e o mensal (dia 1) chegam neste número, com o link para ver completo. Deixe em branco para
+            não receber.
+            {!whatsappConfigured() && " O envio por WhatsApp ainda não foi ativado no servidor."}
           </span>
         </label>
         <SubmitButton pending="Salvando…">Salvar</SubmitButton>

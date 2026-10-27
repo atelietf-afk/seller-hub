@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { NoAccount } from "../../../NoAccount";
+import { sendReportWhatsapp } from "../../../../actions";
 import { PrintButton } from "@/components/PrintButton";
 import { SalesChart } from "@/components/SalesChart";
 import { SeverityBadge } from "@/components/Severity";
+import { SubmitButton } from "@/components/SubmitButton";
 import { periodLabel } from "@/lib/analytics/periods";
 import { getReport } from "@/lib/data/reports";
 import { brl, change, int, pct } from "@/lib/format";
@@ -12,10 +14,24 @@ import { currentAccount } from "@/lib/session";
 
 const KIND = { weekly: "Relatório semanal", monthly: "Relatório mensal" } as const;
 
-export default async function ReportPage({ params }: { params: Promise<{ kind: string; start: string }> }) {
+const WHATSAPP_MSG: Record<string, { ok: boolean; text: string }> = {
+  ok: { ok: true, text: "Relatório enviado no seu WhatsApp." },
+  erro: { ok: false, text: "Não foi possível enviar no WhatsApp." },
+  "sem-numero": { ok: false, text: "Cadastre seu número de WhatsApp em Configurações para receber os relatórios." },
+  desligado: { ok: false, text: "O envio por WhatsApp ainda não foi ativado no servidor." },
+};
+
+export default async function ReportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ kind: string; start: string }>;
+  searchParams: Promise<{ whatsapp?: string }>;
+}) {
   const { user, account } = await currentAccount();
   if (!account) return <NoAccount />;
   const { kind, start } = await params;
+  const whatsapp = WHATSAPP_MSG[(await searchParams).whatsapp ?? ""];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || (kind !== "weekly" && kind !== "monthly")) notFound();
   const report = await getReport(user.id, account.id, kind, start);
   if (!report) notFound();
@@ -30,8 +46,19 @@ export default async function ReportPage({ params }: { params: Promise<{ kind: s
           ← Relatórios
         </Link>
         <span className="ml-auto" />
+        <form action={sendReportWhatsapp}>
+          <input type="hidden" name="kind" value={report.kind} />
+          <input type="hidden" name="start" value={report.period_start} />
+          <SubmitButton pending="Enviando…">Enviar no WhatsApp</SubmitButton>
+        </form>
         <PrintButton />
       </div>
+      {whatsapp && (
+        <p className={`no-print rounded-md p-3 text-sm ${whatsapp.ok ? "bg-good/10 text-good" : "bg-critical/10 text-critical"}`}>
+          {whatsapp.text}
+          {!whatsapp.ok && report.whatsapp_error ? ` Motivo: ${report.whatsapp_error}.` : ""}
+        </p>
+      )}
 
       <header>
         <p className="text-sm text-muted">
@@ -41,6 +68,7 @@ export default async function ReportPage({ params }: { params: Promise<{ kind: s
         <h1 className="text-2xl font-semibold">{periodLabel(d.period)}</h1>
         <p className="text-sm text-ink-2">
           Comparado com {periodLabel(d.previousPeriod)} · gerado em {new Date(report.created_at).toLocaleString("pt-BR")}
+          {report.whatsapp_sent_at && <> · enviado no WhatsApp em {new Date(report.whatsapp_sent_at).toLocaleString("pt-BR")}</>}
         </p>
         {d.incompleteSince && (
           <p className="mt-2 rounded-md bg-warning/20 p-2 text-sm">

@@ -23,6 +23,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let backfill: typeof import("@/lib/ml/backfill");
   let sync: typeof import("@/lib/ml/sync");
   let questionsData: typeof import("@/lib/data/questions");
+  let delivery: typeof import("@/lib/report-delivery");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -50,6 +51,7 @@ describe.skipIf(!url)("banco de dados", () => {
     backfill = await import("@/lib/ml/backfill");
     sync = await import("@/lib/ml/sync");
     questionsData = await import("@/lib/data/questions");
+    delivery = await import("@/lib/report-delivery");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -324,6 +326,54 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(await reportsData.getReport(B, accA, "weekly", week.start)).toBeNull();
     expect(await reportsData.listReports(B, accA)).toEqual([]);
     expect(await reportsData.listReports(A, accA)).toHaveLength(1);
+  });
+
+  it("manda o relatório no WhatsApp só para o dono e registra o resultado", async () => {
+    const [{ kind, period_start: start }] = await reportsData.listReports(A, accA);
+    expect(await delivery.deliverReport(accA, A, kind, start)).toBe("not-configured");
+
+    process.env.WHATSAPP_TOKEN = "t";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "999";
+    const sent: { url: string; body: { to: string; template: { components: { parameters: { text: string }[] }[] } } }[] = [];
+    try {
+      expect(await delivery.deliverReport(accA, A, kind, start)).toBe("no-phone");
+      expect(await reportsData.reportsToDeliver(accA)).toHaveLength(1);
+
+      const settings = await data.settingsOf(A);
+      await data.saveSettings({ ...settings, whatsapp_phone: "5511987654321" });
+      expect((await data.settingsOf(A)).whatsapp_phone).toBe("5511987654321");
+      // B não dispara o relatório da conta de A
+      expect(await delivery.deliverReport(accA, B, kind, start)).toBe("no-report");
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          sent.push({ url, body: JSON.parse(String(init.body)) });
+          return new Response(JSON.stringify({ messages: [{ id: "wamid.1" }] }), { status: 200 });
+        }),
+      );
+      expect(await delivery.deliverReport(accA, A, kind, start)).toBe("sent");
+      expect(sent[0].url).toContain("/999/messages");
+      expect(sent[0].body.to).toBe("5511987654321");
+      expect(sent[0].body.template.components[0].parameters).toHaveLength(7);
+      expect(sent[0].body.template.components[1].parameters[0].text).toBe(`${kind}/${start}`);
+      expect((await reportsData.getReport(A, accA, kind, start))?.whatsapp_sent_at).not.toBeNull();
+      expect(await reportsData.reportsToDeliver(accA)).toEqual([]);
+
+      // Falha fica registrada e o cron tenta de novo
+      await db.query("update reports set whatsapp_sent_at = null where account_id = $1", [accA]);
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: 132001, message: "x" } }), { status: 404 })));
+      expect(await delivery.deliverPendingReports(accA, A)).toEqual({ failed: 1 });
+      const failed = await reportsData.getReport(A, accA, kind, start);
+      expect(failed?.whatsapp_sent_at).toBeNull();
+      expect(failed?.whatsapp_error).toContain("modelo");
+      expect(await reportsData.reportsToDeliver(accA)).toHaveLength(1);
+      expect(await reportsData.reportsToDeliver(accB)).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.WHATSAPP_TOKEN;
+      delete process.env.WHATSAPP_PHONE_NUMBER_ID;
+    }
   });
 
   it("busca o histórico de pedidos aos poucos e retoma de onde parou", async () => {

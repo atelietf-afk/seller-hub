@@ -10,6 +10,8 @@ import * as spyData from "@/lib/data/spy";
 import { suggestTitles } from "@/lib/ai/titles";
 import { lastCompleteMonth, lastCompleteWeek } from "@/lib/analytics/periods";
 import { generatePeriodReport } from "@/lib/period-report";
+import { deliverReport } from "@/lib/report-delivery";
+import { normalizeWhatsappPhone } from "@/lib/analytics/whatsapp";
 import { answerProblems } from "@/lib/analytics/answers";
 import { createAnswerDraft } from "@/lib/answer-drafts";
 import * as questionsData from "@/lib/data/questions";
@@ -119,6 +121,9 @@ export async function saveSettings(formData: FormData) {
   if (storeInfo && answerProblems(storeInfo).some((p) => ["phone", "email", "link", "social"].includes(p.code))) {
     redirect("/configuracoes?ml=contato-na-loja");
   }
+  const phoneInput = String(formData.get("whatsappPhone") ?? "").trim();
+  const whatsappPhone = phoneInput ? normalizeWhatsappPhone(phoneInput) : null;
+  if (phoneInput && !whatsappPhone) redirect("/configuracoes?ml=whatsapp-invalido");
   await data.saveSettings({
     owner_id: user.id,
     tax_rate: pct("taxRate", 0.06),
@@ -126,6 +131,7 @@ export async function saveSettings(formData: FormData) {
     min_margin: pct("minMargin", 0.1),
     low_stock_days: Number.isInteger(days) && days > 0 ? days : 7,
     store_info: storeInfo,
+    whatsapp_phone: whatsappPhone,
   });
   revalidatePath("/", "layout");
 }
@@ -211,6 +217,18 @@ export async function generateReportNow(formData: FormData) {
   }
   revalidatePath("/relatorios");
   redirect(ok ? `/relatorios/${period.kind}/${period.start}` : "/relatorios?erro=1");
+}
+
+const DELIVERY_PARAM = { sent: "ok", failed: "erro", "no-phone": "sem-numero", "not-configured": "desligado", "no-report": "erro" } as const;
+
+export async function sendReportWhatsapp(formData: FormData) {
+  const account = await ownAccount();
+  const kind = formData.get("kind") === "monthly" ? "monthly" : "weekly";
+  const start = String(formData.get("start") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) redirect("/relatorios");
+  const result = await deliverReport(account.id, account.owner_id, kind, start);
+  revalidatePath(`/relatorios/${kind}/${start}`);
+  redirect(`/relatorios/${kind}/${start}?whatsapp=${DELIVERY_PARAM[result]}`);
 }
 
 // Perguntas -----------------------------------------------------------------
