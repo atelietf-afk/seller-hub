@@ -6,6 +6,7 @@ import { CompetitorsTab } from "./CompetitorsTab";
 import { KeywordsTab } from "./KeywordsTab";
 import { spyStatus } from "@/lib/data/spy";
 import { currentAccount } from "@/lib/session";
+import { dateTime } from "@/lib/format";
 
 const TABS = [
   { id: "palavras", label: "Palavras-chave" },
@@ -39,7 +40,7 @@ export default async function SpyPage({ searchParams }: { searchParams: Promise<
         </p>
         <p className="mt-1 text-xs text-muted">
           {status?.spy_synced_at
-            ? `Última atualização: ${new Date(status.spy_synced_at).toLocaleString("pt-BR")}` +
+            ? `Última atualização: ${dateTime(status.spy_synced_at)}` +
               (r
                 ? ` · ${r.categories} categorias` +
                   (r.trends != null && r.refreshed > 0 ? ` (${r.trends} buscas em alta, ${r.bestSellers} mais vendidos recebidos)` : "") +

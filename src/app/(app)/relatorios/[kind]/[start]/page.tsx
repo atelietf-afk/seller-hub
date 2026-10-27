@@ -8,7 +8,7 @@ import { SeverityBadge } from "@/components/Severity";
 import { SubmitButton } from "@/components/SubmitButton";
 import { periodLabel } from "@/lib/analytics/periods";
 import { getReport } from "@/lib/data/reports";
-import { brl, change, int, pct } from "@/lib/format";
+import { brl, change, dateOnly, dateTime, int, pct } from "@/lib/format";
 import type { Mover } from "@/lib/period-report";
 import { currentAccount } from "@/lib/session";
 
@@ -67,12 +67,12 @@ export default async function ReportPage({
         </p>
         <h1 className="text-2xl font-semibold">{periodLabel(d.period)}</h1>
         <p className="text-sm text-ink-2">
-          Comparado com {periodLabel(d.previousPeriod)} · gerado em {new Date(report.created_at).toLocaleString("pt-BR")}
-          {report.whatsapp_sent_at && <> · enviado no WhatsApp em {new Date(report.whatsapp_sent_at).toLocaleString("pt-BR")}</>}
+          Comparado com {periodLabel(d.previousPeriod)} · gerado em {dateTime(report.created_at)}
+          {report.whatsapp_sent_at && <> · enviado no WhatsApp em {dateTime(report.whatsapp_sent_at)}</>}
         </p>
         {d.incompleteSince && (
           <p className="mt-2 rounded-md bg-warning/20 p-2 text-sm">
-            Ainda estamos buscando o histórico de pedidos (temos desde {new Date(d.incompleteSince).toLocaleDateString("pt-BR")}). Os
+            Ainda estamos buscando o histórico de pedidos (temos desde {dateOnly(d.incompleteSince)}). Os
             números deste período ou da comparação podem estar incompletos; a cada sincronização buscamos mais 30 dias. Gere de novo
             depois.
           </p>

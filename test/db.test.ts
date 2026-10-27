@@ -24,6 +24,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let sync: typeof import("@/lib/ml/sync");
   let questionsData: typeof import("@/lib/data/questions");
   let delivery: typeof import("@/lib/report-delivery");
+  let sales: typeof import("@/lib/data/sales");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -52,6 +53,7 @@ describe.skipIf(!url)("banco de dados", () => {
     sync = await import("@/lib/ml/sync");
     questionsData = await import("@/lib/data/questions");
     delivery = await import("@/lib/report-delivery");
+    sales = await import("@/lib/data/sales");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -326,6 +328,20 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(await reportsData.getReport(B, accA, "weekly", week.start)).toBeNull();
     expect(await reportsData.listReports(B, accA)).toEqual([]);
     expect(await reportsData.listReports(A, accA)).toHaveLength(1);
+  });
+
+  it("lista os pedidos com produtos e custos só para o dono da conta", async () => {
+    const now = new Date();
+    const from = new Date(now.getTime() - 86_400_000);
+    const to = new Date(now.getTime() + 60_000);
+    const mine = await sales.ordersWithLines(A, accA, from, to);
+    const o = mine.find((x) => x.id === 9001);
+    expect(o).toMatchObject({ status: "paid", shipping_cost: 20 });
+    expect(o?.lines).toEqual([
+      { item_id: "MLBA1", title: "MLBA1", thumbnail: null, quantity: 2, unit_price: 100, sale_fee: 14, unit_cost: 40, extra_cost: 2 },
+    ]);
+    expect(await sales.ordersWithLines(B, accA, from, to)).toEqual([]);
+    expect(await sales.ordersWithLines(A, accA, to, new Date(to.getTime() + 60_000))).toEqual([]);
   });
 
   it("manda o relatório no WhatsApp só para o dono e registra o resultado", async () => {

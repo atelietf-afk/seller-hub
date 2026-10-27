@@ -6,7 +6,7 @@ import { SeverityBadge } from "@/components/Severity";
 import { SubmitButton } from "@/components/SubmitButton";
 import type { AdDiagnosis, AdsTotals } from "@/lib/analytics/ads";
 import { buildAdsReport } from "@/lib/ads-report";
-import { brl, int, pct } from "@/lib/format";
+import { brl, dateTime, int, pct } from "@/lib/format";
 import { currentAccount } from "@/lib/session";
 
 const STATUS_LABEL: Record<string, string> = { active: "Ativa", paused: "Pausada", idle: "Ociosa", hold: "Retida" };
@@ -26,7 +26,7 @@ export default async function AdsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">Publicidade · últimos {r.periodDays} dias</h1>
         <p className="text-sm text-muted">
-          {r.status.ads_synced_at ? `Atualizado em ${new Date(r.status.ads_synced_at).toLocaleString("pt-BR")}` : "Ainda não sincronizado"}
+          {r.status.ads_synced_at ? `Atualizado em ${dateTime(r.status.ads_synced_at)}` : "Ainda não sincronizado"}
         </p>
         <form action={syncNow} className="ml-auto">
           <SubmitButton pending="Sincronizando…">Sincronizar agora</SubmitButton>

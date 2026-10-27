@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { EventRow } from "@/lib/data/types";
 import { SeverityBadge } from "./Severity";
@@ -21,6 +22,7 @@ export function LiveFeed({ accountId, initial }: { accountId: string; initial: E
   const [events, setEvents] = useState(initial);
   const [online, setOnline] = useState(true);
   const latest = useRef(initial[0]?.created_at);
+  const router = useRouter();
 
   useEffect(() => {
     let stopped = false;
@@ -37,6 +39,8 @@ export function LiveFeed({ accountId, initial }: { accountId: string; initial: E
         if (fresh.length) {
           latest.current = fresh[0].created_at;
           setEvents((prev) => [...fresh, ...prev.filter((e) => !fresh.some((f) => f.id === e.id))].slice(0, 50));
+          // Venda nova: recarrega os números do painel (vendas de hoje) sem perder a página.
+          if (fresh.some((e) => e.kind === "order")) router.refresh();
         }
       } catch {
         if (!stopped) setOnline(false);
@@ -49,7 +53,7 @@ export function LiveFeed({ accountId, initial }: { accountId: string; initial: E
       clearInterval(timer);
       document.removeEventListener("visibilitychange", poll);
     };
-  }, [accountId]);
+  }, [accountId, router]);
 
   return (
     <div>

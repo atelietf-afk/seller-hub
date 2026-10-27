@@ -6,8 +6,11 @@ import { LiveFeed } from "@/components/LiveFeed";
 import { SalesChart } from "@/components/SalesChart";
 import { SeverityBadge } from "@/components/Severity";
 import { SubmitButton } from "@/components/SubmitButton";
-import { latestSummary, recentEvents } from "@/lib/data/accounts";
-import { brl, change, int, pct } from "@/lib/format";
+import { TodaySales } from "@/components/TodaySales";
+import { todaySales, todayWindow } from "@/lib/analytics/today";
+import { latestSummary, recentEvents, settingsOf } from "@/lib/data/accounts";
+import { ordersWithLines } from "@/lib/data/sales";
+import { brl, change, dateTime, int, pct } from "@/lib/format";
 import { buildReport } from "@/lib/report";
 import { currentAccount } from "@/lib/session";
 
@@ -22,11 +25,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (!account) return <NoAccount />;
   const { conectado, erro } = await searchParams;
 
-  const [report, events, summaryRow] = await Promise.all([
+  const now = new Date();
+  const range = todayWindow(now);
+  const [report, events, summaryRow, recentOrders, settings] = await Promise.all([
     buildReport(account.id, account.owner_id, 7),
     recentEvents(account.id),
     latestSummary(account.id),
+    ordersWithLines(account.owner_id, account.id, range.from, range.to),
+    settingsOf(account.owner_id),
   ]);
+  const today = todaySales(recentOrders, settings.tax_rate, now);
   const t = report.totals;
   const summary = summaryRow?.content;
   const attention = report.funnel
@@ -37,10 +45,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Últimos 7 dias</h1>
+        <h1 className="text-xl font-semibold">
+          Hoje{" "}
+          <span className="text-base font-normal text-muted">
+            {now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "numeric", month: "long" })}
+          </span>
+        </h1>
         <p className="text-sm text-muted">
           {account.last_synced_at
-            ? `Sincronizado em ${new Date(account.last_synced_at).toLocaleString("pt-BR")}`
+            ? `Sincronizado em ${dateTime(account.last_synced_at)}`
             : "Primeira sincronização em andamento…"}
         </p>
         <form action={syncNow} className="ml-auto">
@@ -65,6 +78,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </p>
       )}
 
+      <TodaySales data={today} now={now} />
+
+      <h2 className="pt-2 text-lg font-semibold">Últimos 7 dias</h2>
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi label="Faturamento" value={brl(t.revenue)} delta={change(t.revenue, report.previous.revenue)} hint="vs. 7 dias antes" />
         <Kpi label="Vendas" value={int(t.orders)} delta={change(t.orders, report.previous.orders)} hint={`${int(t.units)} unidades`} />
@@ -85,7 +101,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <div className="rounded-xl border border-line bg-surface p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="font-semibold">Resumo do dia</h2>
-              {summaryRow && <span className="text-xs text-muted">{new Date(summaryRow.created_at).toLocaleString("pt-BR")}</span>}
+              {summaryRow && <span className="text-xs text-muted">{dateTime(summaryRow.created_at)}</span>}
               <form action={summarizeNow} className="ml-auto">
                 <SubmitButton pending="Analisando…">{summary ? "Atualizar análise" : "Gerar análise"}</SubmitButton>
               </form>

@@ -14,6 +14,13 @@ export function parseMoney(raw: string): number | null {
 
 export const int = (n: number) => n.toLocaleString("pt-BR");
 
+// Datas sempre no horário de Brasília: o servidor da Vercel roda em UTC.
+const TZ = "America/Sao_Paulo";
+/** 27/10/2026, 20:47:48 */
+export const dateTime = (t: string | Date) => new Date(t).toLocaleString("pt-BR", { timeZone: TZ });
+/** 27/10/2026 */
+export const dateOnly = (t: string | Date) => new Date(t).toLocaleDateString("pt-BR", { timeZone: TZ });
+
 /** Variação percentual com sinal, ou null se não houver base de comparação. */
 export function change(current: number, previous: number): number | null {
   return previous > 0 ? (current - previous) / previous : null;

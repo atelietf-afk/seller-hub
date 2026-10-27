@@ -6,7 +6,7 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { ANSWER_MAX, waitingSeverity } from "@/lib/analytics/answers";
 import { settingsOf } from "@/lib/data/accounts";
 import { pendingQuestions, recentlyAnswered } from "@/lib/data/questions";
-import { brl, int } from "@/lib/format";
+import { brl, dateTime, int } from "@/lib/format";
 import { currentAccount } from "@/lib/session";
 
 const ERRORS: Record<string, string> = {
@@ -137,7 +137,7 @@ export default async function QuestionsPage({ searchParams }: { searchParams: Pr
             {answered.map((a) => (
               <li key={a.id} className="py-2">
                 <p className="text-xs text-muted">
-                  {a.title} · {new Date(a.answered_at).toLocaleString("pt-BR")}
+                  {a.title} · {dateTime(a.answered_at)}
                 </p>
                 <p className="text-ink-2">“{a.text}”</p>
                 <p>{a.answer}</p>
