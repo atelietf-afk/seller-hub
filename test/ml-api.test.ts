@@ -31,6 +31,15 @@ describe("MlApi", () => {
     expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 
+  it("busca pedidos de um intervalo com data final exclusiva", async () => {
+    const fetchFn = vi.fn(async () => json({ results: [], paging: { total: 0 } }));
+    await new MlApi(async () => "t", fetchFn as typeof fetch).ordersBetween(1, new Date("2026-09-01T03:00:00Z"), new Date("2026-10-01T03:00:00Z"));
+    const q = new URL(String((fetchFn.mock.calls[0] as unknown as [string])[0])).searchParams;
+    expect(q.get("order.date_created.from")).toBe("2026-09-01T03:00:00.000Z");
+    expect(q.get("order.date_created.to")).toBe("2026-10-01T02:59:59.999Z");
+    expect(q.get("sort")).toBe("date_desc");
+  });
+
   it("tenta de novo em 429 e falha em 404", async () => {
     const fetchFn = vi
       .fn()

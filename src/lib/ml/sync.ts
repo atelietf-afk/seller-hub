@@ -3,6 +3,7 @@ import { reputationAlert, visitsDropAlerts, type VisitSeries } from "@/lib/analy
 import { accountById, settingsOf } from "@/lib/data/accounts";
 import { query } from "@/lib/db";
 import { syncAds } from "./ads-sync";
+import { backfillOrders } from "./backfill";
 import { syncSpy } from "./spy-sync";
 import { mapLimit, pushEvents, saveVisits, upsertItems, upsertOrder, upsertQuestion } from "./store";
 import { apiFor } from "./tokens";
@@ -26,6 +27,7 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
   if (!account) throw new Error(`Conta ${accountId} não encontrada`);
   const settings = await settingsOf(account.owner_id);
 
+  const startedAt = Date.now();
   const api = apiFor(accountId);
   const sellerId = Number(account.ml_user_id);
   const today = new Date().toISOString().slice(0, 10);
@@ -60,6 +62,14 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
     : new Date(Date.now() - 30 * 24 * 3600 * 1000);
   const orders = await api.ordersSince(sellerId, from);
   await mapLimit(orders, 4, (o) => upsertOrder(api, accountId, sellerId, o));
+  if (!account.orders_history_since) {
+    await query("update ml_accounts set orders_history_since = $2 where id = $1", [accountId, from.toISOString()]);
+  }
+
+  // Histórico mais antigo, aos poucos, com limite de tempo para caber na função.
+  await backfillOrders(api, accountId, sellerId, new Date(account.orders_history_since ?? from), {
+    deadline: startedAt + 120_000,
+  }).catch((err) => console.error("Histórico de pedidos interrompido", accountId, err));
 
   // Perguntas sem resposta
   const questions = await api.unansweredQuestions(sellerId);

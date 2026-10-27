@@ -78,7 +78,12 @@ export class MlApi {
   }
 
   /** Pedidos criados a partir de uma data, do mais novo para o mais antigo. */
-  async ordersSince(sellerId: number, from: Date): Promise<MlOrder[]> {
+  ordersSince(sellerId: number, from: Date): Promise<MlOrder[]> {
+    return this.ordersBetween(sellerId, from);
+  }
+
+  /** Pedidos criados em [from, to), do mais novo para o mais antigo. */
+  async ordersBetween(sellerId: number, from: Date, to?: Date): Promise<MlOrder[]> {
     const out: MlOrder[] = [];
     for (let offset = 0; ; offset += 50) {
       const q = new URLSearchParams({
@@ -88,6 +93,7 @@ export class MlApi {
         limit: "50",
         offset: String(offset),
       });
+      if (to) q.set("order.date_created.to", new Date(to.getTime() - 1).toISOString());
       const page = await this.get<{ results: MlOrder[]; paging: { total: number } }>(`/orders/search?${q}`);
       out.push(...page.results);
       if (offset + 50 >= page.paging.total || !page.results.length) break;

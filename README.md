@@ -13,6 +13,7 @@ Painel para vendedores de marketplaces. Começa pelo **Mercado Livre**. Shopee, 
 | **Alertas** | Queda de visitas semana contra semana, reputação piorando, anúncio ativo sem estoque. |
 | **Publicidade (Product Ads)** | Campanhas e produtos anunciados dos últimos 30 dias: investimento, vendas, ACOS, ROAS, TACOS, CTR e CPC. Cruza com o lucro real: mostra o **lucro após anúncios** e o **ACOS de equilíbrio** de cada produto, e aponta onde o anúncio dá prejuízo, onde vale escalar e onde gasta sem vender. |
 | **Espião** | **Palavras-chave**: buscas em alta na categoria e termos dos mais vendidos que faltam no seu título, com títulos sugeridos pela IA (até 60 caracteres, sem inventar características). **Mais vendidos**: top 20 de cada categoria sua, com preço comparado à mediana, frete grátis e Full. **Catálogo**: se você está ganhando a vitrine e o preço para ganhar, com alerta ao perder. **Concorrentes**: cole o link de um anúncio e acompanhe preço e situação dia a dia, com alerta quando baixarem o preço. |
+| **Relatórios semanal e mensal** | Gerados sozinhos (semanal toda segunda, mensal todo dia 1) ou na hora. Faturamento, vendas, ticket médio, lucro real e para onde foi o dinheiro (comissão, frete, imposto, custo, anúncios), publicidade, tráfego, produtos que mais faturaram, os que mais subiram e caíram, pontos de atenção e análise da IA. Página pronta para imprimir ou salvar em PDF. |
 | **Resumo diário com IA** | O Claude lê os números da semana e explica o que mudou e o que fazer, em linguagem simples. |
 
 ## Arquitetura
@@ -48,6 +49,9 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
 4. Abra o app, crie sua conta e vá em **Configurações → Conectar Mercado Livre**.
    Depois cadastre o custo dos produtos em **Produtos e funil**.
 
+> **Histórico de pedidos:** a primeira sincronização traz 30 dias; depois, cada sincronização recua mais 30 dias (com limite de tempo)
+> até completar 120 dias, o suficiente para o relatório mensal e sua comparação. O relatório avisa quando o histórico ainda está incompleto.
+
 > **Cron e plano da Vercel:** o `vercel.json` agenda uma sincronização (9h UTC) e o resumo diário (10h UTC = 7h em Brasília),
 > o que cabe no plano gratuito (Hobby), que só aceita tarefas diárias. Para sincronizar mais vezes, use o plano Pro (ex.: `0 */3 * * *`)
 > ou um agendador externo (ex.: cron-job.org) chamando `/api/cron/sync` com o cabeçalho `Authorization: Bearer $CRON_SECRET`.
@@ -69,7 +73,7 @@ O ML só aceita redirect e webhooks em HTTPS público. Para testar localmente, u
 
 ## Próximas fases
 
-2. **Relatórios semanal e mensal:** PDF e envio por e-mail/WhatsApp.
+2. **Envio dos relatórios** por e-mail/WhatsApp.
 4. **Respostas com IA** para perguntas, **estoque unificado** e **precificação automática**.
 5. **Shopee, Amazon e TikTok Shop:** um conector por marketplace, convertendo tudo para as mesmas tabelas.
 6. **Para vender como serviço:** equipes (organizações), planos e cobrança, confirmação de e-mail e recuperação de senha, onboarding guiado.

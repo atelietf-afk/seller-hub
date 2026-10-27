@@ -1,5 +1,6 @@
 import "server-only";
 import { analyzeFunnel, type ItemFunnel } from "./analytics/funnel";
+import { localDay } from "./analytics/periods";
 import { lineProfit, sumProfits, type LineProfit } from "./analytics/profit";
 import { settingsOf } from "./data/accounts";
 import { one, query } from "./db";
@@ -44,12 +45,25 @@ interface OrderRow {
   order_items: { item_id: string; quantity: number; unit_price: number; sale_fee: number }[];
 }
 
-/** O chamador garante que a conta é do usuário (ou que é uma rotina interna). */
+/** Últimos N dias até agora, contra os N dias anteriores. O chamador garante que a conta é do usuário. */
 export async function buildReport(accountId: string, ownerId: string, periodDays = 7): Promise<AccountReport> {
-  const now = Date.now();
-  const since = new Date(now - periodDays * 86400_000);
-  const prevSince = new Date(now - 2 * periodDays * 86400_000);
-  const sinceDay = since.toISOString().slice(0, 10);
+  const to = new Date();
+  const from = new Date(to.getTime() - periodDays * 86400_000);
+  return buildRangeReport(accountId, ownerId, { from, to, prevFrom: new Date(from.getTime() - periodDays * 86400_000), periodDays });
+}
+
+/**
+ * Números de [from, to) contra [prevFrom, from). Os dias do gráfico seguem o horário
+ * de Brasília. O chamador garante que a conta é do usuário (ou que é uma rotina interna).
+ */
+export async function buildRangeReport(
+  accountId: string,
+  ownerId: string,
+  range: { from: Date; to: Date; prevFrom: Date; periodDays: number },
+): Promise<AccountReport> {
+  const { from: since, to, prevFrom: prevSince, periodDays } = range;
+  const sinceDay = localDay(since);
+  const toDay = localDay(new Date(to.getTime() - 1));
 
   const [settings, items, orders, visits, questions] = await Promise.all([
     settingsOf(ownerId),
@@ -63,13 +77,13 @@ export async function buildReport(accountId: string, ownerId: string, periodDays
          coalesce(json_agg(json_build_object('item_id', oi.item_id, 'quantity', oi.quantity, 'unit_price', oi.unit_price,
            'sale_fee', oi.sale_fee)) filter (where oi.order_id is not null), '[]') as order_items
        from orders o left join order_items oi on oi.order_id = o.id
-       where o.account_id = $1 and o.date_created >= $2 group by o.id`,
-      [accountId, prevSince.toISOString()],
+       where o.account_id = $1 and o.date_created >= $2 and o.date_created < $3 group by o.id`,
+      [accountId, prevSince.toISOString(), to.toISOString()],
     ),
     query<{ item_id: string; visits: number }>(
       `select v.item_id, sum(v.visits)::int as visits from item_visits_daily v join items i on i.id = v.item_id
-       where i.account_id = $1 and v.day >= $2 group by v.item_id`,
-      [accountId, sinceDay],
+       where i.account_id = $1 and v.day >= $2 and v.day <= $3 group by v.item_id`,
+      [accountId, sinceDay, toDay],
     ),
     one<{ n: number }>("select count(*)::int as n from questions where account_id = $1 and status = 'UNANSWERED'", [accountId]),
   ]);
@@ -81,8 +95,9 @@ export async function buildReport(accountId: string, ownerId: string, periodDays
 
   const perItem = new Map<string, { orders: number; units: number; lines: LineProfit[] }>();
   const daily = new Map<string, DayPoint>();
-  for (let d = 0; d < periodDays; d++) {
-    const day = new Date(since.getTime() + (d + 1) * 86400_000).toISOString().slice(0, 10);
+  const lastInstant = to.getTime() - 1;
+  for (let d = periodDays - 1; d >= 0; d--) {
+    const day = localDay(lastInstant - d * 86400_000);
     daily.set(day, { day, revenue: 0, profit: 0, orders: 0 });
   }
   const current: LineProfit[] = [];
@@ -124,13 +139,13 @@ export async function buildReport(accountId: string, ownerId: string, periodDays
       s.units += l.quantity;
       s.lines.push(p);
       perItem.set(l.item_id, s);
-      const dp = daily.get(o.date_created.slice(0, 10));
+      const dp = daily.get(localDay(o.date_created));
       if (dp) {
         dp.revenue += p.revenue;
         dp.profit += p.profit;
       }
     }
-    const dp = isCurrent ? daily.get(o.date_created.slice(0, 10)) : undefined;
+    const dp = isCurrent ? daily.get(localDay(o.date_created)) : undefined;
     if (dp) dp.orders++;
   }
 

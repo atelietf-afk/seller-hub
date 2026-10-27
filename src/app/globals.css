@@ -49,3 +49,23 @@ body {
   background: var(--background);
   color: var(--text);
 }
+
+/* Impressão / "Salvar como PDF" dos relatórios */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  :root {
+    --background: #ffffff;
+    --surface: #ffffff;
+  }
+  body {
+    background: #ffffff;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  section,
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+}

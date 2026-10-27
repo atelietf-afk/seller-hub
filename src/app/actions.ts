@@ -8,6 +8,8 @@ import { auth } from "@/lib/auth";
 import * as data from "@/lib/data/accounts";
 import * as spyData from "@/lib/data/spy";
 import { suggestTitles } from "@/lib/ai/titles";
+import { lastCompleteMonth, lastCompleteWeek } from "@/lib/analytics/periods";
+import { generatePeriodReport } from "@/lib/period-report";
 import { competitorTermGaps, parseListingId, trendGaps } from "@/lib/analytics/keywords";
 import { MlSpyApi, type Listing } from "@/lib/ml/spy-api";
 import { saveCompetitorSnapshot } from "@/lib/ml/spy-sync";
@@ -182,4 +184,20 @@ export async function suggestItemTitles(formData: FormData) {
   }
   revalidatePath("/espiao");
   redirect(`/espiao?aba=palavras${ok ? "" : "&erro=ia"}#${item.id}`);
+}
+
+// Relatórios ---------------------------------------------------------------
+
+export async function generateReportNow(formData: FormData) {
+  const account = await ownAccount();
+  const period = formData.get("kind") === "monthly" ? lastCompleteMonth(new Date()) : lastCompleteWeek(new Date());
+  let ok = false;
+  try {
+    await generatePeriodReport(account.id, account.owner_id, period);
+    ok = true;
+  } catch (err) {
+    console.error("Relatório falhou", account.id, period, err);
+  }
+  revalidatePath("/relatorios");
+  redirect(ok ? `/relatorios/${period.kind}/${period.start}` : "/relatorios?erro=1");
 }

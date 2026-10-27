@@ -17,6 +17,10 @@ describe.skipIf(!url)("banco de dados", () => {
   let adsReport: typeof import("@/lib/ads-report");
   let spySync: typeof import("@/lib/ml/spy-sync");
   let spyData: typeof import("@/lib/data/spy");
+  let periodReport: typeof import("@/lib/period-report");
+  let reportsData: typeof import("@/lib/data/reports");
+  let periods: typeof import("@/lib/analytics/periods");
+  let backfill: typeof import("@/lib/ml/backfill");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -38,6 +42,10 @@ describe.skipIf(!url)("banco de dados", () => {
     adsReport = await import("@/lib/ads-report");
     spySync = await import("@/lib/ml/spy-sync");
     spyData = await import("@/lib/data/spy");
+    periodReport = await import("@/lib/period-report");
+    reportsData = await import("@/lib/data/reports");
+    periods = await import("@/lib/analytics/periods");
+    backfill = await import("@/lib/ml/backfill");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -258,6 +266,101 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(await spyData.competitorsFor(A, accA)).toHaveLength(1);
     await spyData.removeCompetitor(A, accA, "MLBZ1");
     expect(await spyData.competitorsFor(A, accA)).toHaveLength(0);
+  });
+
+  it("relatório semanal: período fechado contra o anterior, com publicidade e sem vazar", async () => {
+    const week = periods.lastCompleteWeek(new Date());
+    const prev = periods.previousPeriod(week);
+    const at = (day: string, hour = 15) => new Date(new Date(`${day}T00:00:00Z`).getTime() + hour * 3600_000).toISOString();
+    const mid = (p: { start: string }, plus: number) => new Date(new Date(`${p.start}T00:00:00Z`).getTime() + plus * 86400_000).toISOString().slice(0, 10);
+    const api = { shipmentCosts: vi.fn(async () => ({ senders: [{ user_id: 1, cost: 0 }] })) };
+    const order = (id: number, date: string, item: string, qty: number, price: number) =>
+      store.upsertOrder(api as never, accA, 1, {
+        id,
+        status: "paid",
+        date_created: date,
+        total_amount: qty * price,
+        shipping: { id: null },
+        order_items: [{ item: { id: item, title: item }, quantity: qty, unit_price: price, sale_fee: 0 }],
+      });
+    await order(7001, at(mid(week, 2)), "MLBA1", 3, 100); // esta semana: 300
+    await order(7002, at(mid(week, 6), 23), "MLBA2", 1, 100); // domingo 23h UTC (20h em Brasília): ainda é desta semana
+    await order(7003, at(mid(prev, 3)), "MLBA1", 1, 100); // semana anterior: 100
+    await order(7004, at(mid(week, 7), 4), "MLBA1", 9, 100); // segunda 01h em Brasília: fora
+    await db.query(
+      `insert into ads_campaign_daily (account_id, campaign_id, day, clicks, prints, cost, revenue, units) values
+       ($1, 99, $2, 10, 100, 40, 200, 2), ($1, 99, $3, 5, 50, 10, 0, 0)`,
+      [accA, mid(week, 1), mid(prev, 1)],
+    );
+
+    const { data } = await periodReport.buildPeriodReport(accA, A, week);
+    expect(data.period).toEqual(week);
+    expect(data.totals).toMatchObject({ revenue: 400, orders: 2, units: 4, avgTicket: 200, adCost: 40, adRevenue: 200 });
+    expect(data.totals.acos).toBeCloseTo(0.2);
+    expect(data.totals.tacos).toBeCloseTo(0.1);
+    expect(data.totals.profitAfterAds).toBeCloseTo(data.totals.profit - 40);
+    expect(data.previous).toMatchObject({ revenue: 100, orders: 1, adCost: 10 });
+    expect(data.daily).toHaveLength(7);
+    expect(data.daily[0].day).toBe(week.start);
+    expect(data.daily.reduce((a, d) => a + d.revenue, 0)).toBe(400);
+    expect(data.topProducts[0]).toMatchObject({ itemId: "MLBA1", revenue: 300, units: 3 });
+    expect(data.movers.up[0]).toMatchObject({ itemId: "MLBA1", revenue: 300, prevRevenue: 100 });
+
+    // Gera e grava; a IA sem chave falha e o relatório sai mesmo assim
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    try {
+      expect(await periodReport.ensureDueReports(accA, A, [week])).toHaveLength(1);
+      expect(await periodReport.ensureDueReports(accA, A, [week])).toHaveLength(0); // já existe: não refaz
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const saved = await reportsData.getReport(A, accA, "weekly", week.start);
+    expect(saved?.data.totals.revenue).toBe(400);
+    expect(saved?.ai).toBeNull();
+    expect(await reportsData.getReport(B, accA, "weekly", week.start)).toBeNull();
+    expect(await reportsData.listReports(B, accA)).toEqual([]);
+    expect(await reportsData.listReports(A, accA)).toHaveLength(1);
+  });
+
+  it("busca o histórico de pedidos aos poucos e retoma de onde parou", async () => {
+    const DAY = 86_400_000;
+    const now = new Date("2030-06-30T12:00:00Z");
+    // um pedido a cada 10 dias, de 0 a 150 dias atrás
+    const all = Array.from({ length: 16 }, (_, i) => ({
+      id: 900000 + i,
+      status: "paid",
+      date_created: new Date(now.getTime() - i * 10 * DAY - 3600_000).toISOString(),
+      total_amount: 10,
+      shipping: { id: null },
+      order_items: [{ item: { id: "MLBA2", title: "x" }, quantity: 1, unit_price: 10, sale_fee: 0 }],
+    }));
+    const calls: [string, string][] = [];
+    const api = {
+      shipmentCosts: vi.fn(),
+      ordersBetween: vi.fn(async (_s: number, from: Date, to?: Date) => {
+        calls.push([from.toISOString(), to!.toISOString()]);
+        return all.filter((o) => new Date(o.date_created) >= from && new Date(o.date_created) < to!);
+      }),
+    };
+    const start = new Date(now.getTime() - 30 * DAY);
+    const count = async () => (await db.query<{ n: number }>("select count(*)::int as n from orders where id >= 900000"))[0].n;
+
+    // Sem tempo: não busca nada e não perde o ponto de partida
+    expect(await backfill.backfillOrders(api, accA, 1, start, { now, deadline: Date.now() - 1 })).toEqual(start);
+
+    // Com tempo: recua em blocos de 30 dias até 120 dias
+    const reached = await backfill.backfillOrders(api, accA, 1, start, { now, deadline: Date.now() + 60_000 });
+    expect(reached.toISOString()).toBe(new Date(now.getTime() - 120 * DAY).toISOString());
+    expect(calls).toHaveLength(3);
+    expect(await count()).toBe(9); // pedidos de 30 a 110 dias atrás (os de 120+ ficam de fora)
+    const [row] = await db.query<{ orders_history_since: string }>("select orders_history_since from ml_accounts where id = $1", [accA]);
+    expect(row.orders_history_since).toBe(reached.toISOString());
+
+    // Já completo: não chama a API de novo
+    calls.length = 0;
+    await backfill.backfillOrders(api, accA, 1, reached, { now, deadline: Date.now() + 60_000 });
+    expect(calls).toHaveLength(0);
+    await db.query("delete from orders where id >= 900000");
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {

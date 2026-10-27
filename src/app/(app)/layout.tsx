@@ -7,6 +7,7 @@ const NAV = [
   { href: "/produtos", label: "Produtos e funil" },
   { href: "/publicidade", label: "Publicidade" },
   { href: "/espiao", label: "Espião" },
+  { href: "/relatorios", label: "Relatórios" },
   { href: "/configuracoes", label: "Configurações" },
 ];
 
@@ -14,7 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { user, account } = await currentAccount();
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line bg-surface">
+      <header className="no-print border-b border-line bg-surface">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <Link href="/dashboard" className="font-semibold">
             Seller Hub
