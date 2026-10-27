@@ -41,7 +41,7 @@ function changeText(now: number, before: number): string {
 export interface ReportMessage {
   /** Parâmetros {{1}} a {{7}} do corpo do modelo, na ordem. */
   body: string[];
-  /** Final do link do botão: relatorios/{kind}/{start}. */
+  /** Final do link do botão: relatorios/{kind}-{start} (sem barra: a Meta pode codificar a "/"). */
   buttonSuffix: string;
 }
 
@@ -63,6 +63,6 @@ export function reportMessage(d: PeriodReportData, ai: DailySummary | null): Rep
       profit,
       analysis,
     ].map((s) => templateText(s)),
-    buttonSuffix: `${d.period.kind}/${d.period.start}`,
+    buttonSuffix: `${d.period.kind}-${d.period.start}`,
   };
 }

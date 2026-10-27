@@ -65,7 +65,7 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
 
    Toque no botão para ver o relatório completo.
    ```
-   Botão do tipo *Visitar site*, URL dinâmica `https://SEU-DOMINIO/relatorios/{{1}}` (exemplo: `weekly/2026-10-19`).
+   Botão do tipo *Visitar site*, URL dinâmica `https://SEU-DOMINIO/relatorios/{{1}}` (exemplo: `https://SEU-DOMINIO/relatorios/weekly-2026-10-19`).
    Depois de aprovado, configure `WHATSAPP_TOKEN` (token permanente de um usuário do sistema) e `WHATSAPP_PHONE_NUMBER_ID`
    na Vercel, e cada vendedor cadastra o número dele em **Configurações**. O envio sai junto com o cron diário; se falhar,
    tenta de novo nos dias seguintes (até 3 dias) e o motivo aparece no relatório.

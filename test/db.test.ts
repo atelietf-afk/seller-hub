@@ -356,7 +356,7 @@ describe.skipIf(!url)("banco de dados", () => {
       expect(sent[0].url).toContain("/999/messages");
       expect(sent[0].body.to).toBe("5511987654321");
       expect(sent[0].body.template.components[0].parameters).toHaveLength(7);
-      expect(sent[0].body.template.components[1].parameters[0].text).toBe(`${kind}/${start}`);
+      expect(sent[0].body.template.components[1].parameters[0].text).toBe(`${kind}-${start}`);
       expect((await reportsData.getReport(A, accA, kind, start))?.whatsapp_sent_at).not.toBeNull();
       expect(await reportsData.reportsToDeliver(accA)).toEqual([]);
 

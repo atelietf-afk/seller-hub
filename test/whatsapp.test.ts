@@ -57,7 +57,7 @@ const report = (o: Partial<PeriodReportData> = {}): PeriodReportData => ({
 describe("reportMessage", () => {
   it("monta os 7 parâmetros e o link do botão", () => {
     const m = reportMessage(report(), { headline: "Vendas subiram\npor causa do anúncio X.", highlights: [], actions: [] });
-    expect(m.buttonSuffix).toBe("weekly/2026-10-19");
+    expect(m.buttonSuffix).toBe("weekly-2026-10-19");
     expect(m.body).toHaveLength(7);
     expect(m.body[0]).toBe("semanal");
     expect(m.body[1]).toBe("19/10 a 25/10/2026");
@@ -85,7 +85,7 @@ describe("reportMessage", () => {
     expect(m.body[3]).toBe("igual ao período anterior");
     expect(m.body[5]).toContain("falta custo em 3 anúncio(s)");
     expect(m.body[6]).toBe("Atenção: Caneca: Sem estoque");
-    expect(m.buttonSuffix).toBe("monthly/2026-09-01");
+    expect(m.buttonSuffix).toBe("monthly-2026-09-01");
   });
 
   it("mostra queda com sinal de menos", () => {
