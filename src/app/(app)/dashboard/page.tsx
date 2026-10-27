@@ -75,7 +75,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           hint={report.missingCosts ? `${report.missingCosts} anúncio(s) sem custo` : `margem ${pct(t.margin)}`}
         />
         <Kpi label="Visitas" value={int(t.visits)} hint={`conversão ${pct(t.conversion, 2)}`} />
-        <Kpi label="Perguntas sem resposta" value={int(report.unansweredQuestions)} hint="responda rápido: ajuda a vender" />
+        <Link href="/perguntas" className="block">
+          <Kpi label="Perguntas sem resposta" value={int(report.unansweredQuestions)} hint="responder com IA →" />
+        </Link>
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

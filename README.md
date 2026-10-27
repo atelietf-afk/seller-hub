@@ -14,6 +14,7 @@ Painel para vendedores de marketplaces. Começa pelo **Mercado Livre**. Shopee, 
 | **Publicidade (Product Ads)** | Campanhas e produtos anunciados dos últimos 30 dias: investimento, vendas, ACOS, ROAS, TACOS, CTR e CPC. Cruza com o lucro real: mostra o **lucro após anúncios** e o **ACOS de equilíbrio** de cada produto, e aponta onde o anúncio dá prejuízo, onde vale escalar e onde gasta sem vender. |
 | **Espião** | **Palavras-chave**: buscas em alta na categoria e termos dos mais vendidos que faltam no seu título, com títulos sugeridos pela IA (até 60 caracteres, sem inventar características). **Mais vendidos**: top 20 de cada categoria sua, com preço comparado à mediana, frete grátis e Full. **Catálogo**: se você está ganhando a vitrine e o preço para ganhar, com alerta ao perder. **Concorrentes**: cole o link de um anúncio e acompanhe preço e situação dia a dia, com alerta quando baixarem o preço. |
 | **Relatórios semanal e mensal** | Gerados sozinhos (semanal toda segunda, mensal todo dia 1) ou na hora. Faturamento, vendas, ticket médio, lucro real e para onde foi o dinheiro (comissão, frete, imposto, custo, anúncios), publicidade, tráfego, produtos que mais faturaram, os que mais subiram e caíram, pontos de atenção e análise da IA. Página pronta para imprimir ou salvar em PDF. |
+| **Perguntas com IA** | Perguntas sem resposta da mais antiga para a mais nova, com o tempo de espera. A IA sugere a resposta usando o anúncio (ficha técnica, descrição, frete, estoque, garantia), as informações da loja e respostas anteriores, sem inventar: marca entre colchetes o que falta. Você revisa e envia ao ML. Bloqueia telefone, e-mail, links e redes sociais antes de enviar. |
 | **Resumo diário com IA** | O Claude lê os números da semana e explica o que mudou e o que fazer, em linguagem simples. |
 
 ## Arquitetura
@@ -42,7 +43,8 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
    - *URL de notificações*: `https://SEU-DOMINIO/api/ml/notifications`
    - *Tópicos*: `orders_v2`, `questions`, `items`
    - *Fluxos OAuth*: Authorization Code e **Refresh Token** (sem ele o acesso expira em 6 horas)
-   - *Permissões*: inclua **Publicidade de um produto** (leitura) para a tela de Publicidade
+   - *Permissões*: inclua **Publicidade de um produto** (leitura) para a tela de Publicidade e
+     **Comunicações pré e pós-vendas** (leitura e escrita) para responder perguntas
    - *Escopos*: leitura, escrita e acesso offline
 3. **Vercel:** importe o repositório e configure as variáveis do `.env.example`
    (`BETTER_AUTH_URL` = a URL do app). Gere os segredos com `openssl rand -base64 32` e `openssl rand -hex 32` (CRON_SECRET).
@@ -74,7 +76,7 @@ O ML só aceita redirect e webhooks em HTTPS público. Para testar localmente, u
 ## Próximas fases
 
 2. **Envio dos relatórios** por e-mail/WhatsApp.
-4. **Respostas com IA** para perguntas, **estoque unificado** e **precificação automática**.
+4. **Estoque unificado** e **precificação automática**.
 5. **Shopee, Amazon e TikTok Shop:** um conector por marketplace, convertendo tudo para as mesmas tabelas.
 6. **Para vender como serviço:** equipes (organizações), planos e cobrança, confirmação de e-mail e recuperação de senha, onboarding guiado.
 

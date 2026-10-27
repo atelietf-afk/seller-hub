@@ -21,6 +21,7 @@ export interface SellerSettings {
   visits_drop_alert: number;
   low_stock_days: number;
   min_margin: number;
+  store_info?: string | null;
 }
 
 export interface EventRow {

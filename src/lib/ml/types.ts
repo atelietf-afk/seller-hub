@@ -33,6 +33,9 @@ export interface MlItem {
   permalink?: string;
   health?: number | null;
   shipping?: { logistic_type?: string; free_shipping?: boolean };
+  condition?: string;
+  attributes?: { id: string; name: string; value_name: string | null }[];
+  sale_terms?: { id: string; name: string; value_name: string | null }[];
   catalog_listing?: boolean;
   catalog_product_id?: string | null;
   pictures?: { id: string }[];

@@ -102,6 +102,21 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
   // Perguntas sem resposta
   const questions = await api.unansweredQuestions(sellerId);
   for (const q of questions) await upsertQuestion(accountId, q);
+  // Perguntas respondidas fora daqui (no app do ML) ainda constam como sem resposta: atualiza.
+  const stale = await query<{ id: number }>(
+    "select id from questions where account_id = $1 and status = 'UNANSWERED' and not (id = any($2::bigint[])) limit 50",
+    [accountId, questions.map((q) => q.id)],
+  );
+  // Uma resposta estranha do ML aqui não pode derrubar a sincronização.
+  await mapLimit(stale, 3, async ({ id }) => {
+    try {
+      const q = await api.question(id).catch(() => null);
+      if (q?.id && q.status) await upsertQuestion(accountId, q);
+      else if (!q) await query("update questions set status = 'CLOSED' where id = $1 and account_id = $2", [id, accountId]);
+    } catch (err) {
+      console.warn("Pergunta não atualizada", id, err instanceof Error ? err.message : err);
+    }
+  });
 
   // Alertas
   const alerts = visitsDropAlerts(series, settings.visits_drop_alert, today);

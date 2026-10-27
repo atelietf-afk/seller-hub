@@ -9,6 +9,8 @@ const ML_MSG: Record<string, string> = {
   "conta-ja-vinculada": "Essa conta do Mercado Livre já está ligada a outro usuário do Seller Hub.",
   "autorizacao-negada": "A autorização foi cancelada no Mercado Livre. Clique em Conectar para tentar de novo.",
   "codigo-invalido": "O link de autorização expirou ou já foi usado. Clique em Conectar para começar de novo.",
+  "contato-na-loja":
+    "As informações da loja não foram salvas: tire telefone, e-mail, links ou redes sociais (o Mercado Livre proíbe nas respostas).",
   "sem-acesso-offline":
     "O app no Mercado Livre está sem a permissão de acesso offline (offline_access). Ative-a no DevCenter e conecte de novo.",
 };
@@ -54,6 +56,20 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <Field name="minMargin" label="Margem mínima aceitável (%)" hint="Abaixo disso o produto aparece como margem baixa." value={num(s.min_margin)} />
         <Field name="visitsDrop" label="Alerta de queda de visitas (%)" hint="Semana atual contra a anterior." value={num(s.visits_drop_alert)} />
         <Field name="lowStockDays" label="Alerta de estoque (dias)" hint="Avisa quando o estoque cobre menos dias que isso." value={String(s.low_stock_days)} />
+        <label className="block text-sm">
+          <span className="font-medium">Informações da loja para as respostas com IA</span>
+          <textarea
+            name="storeInfo"
+            rows={6}
+            maxLength={3000}
+            defaultValue={s.store_info ?? ""}
+            placeholder={"Ex.: Enviamos em até 24h úteis após o pagamento.\nTodos os produtos têm nota fiscal.\nGarantia de 90 dias contra defeito de fabricação.\nTrocas em até 7 dias pelo próprio Mercado Livre."}
+            className="mt-1 block w-full rounded-md border border-line bg-bg px-3 py-2"
+          />
+          <span className="text-xs text-muted">
+            A IA usa isso para responder sobre prazo, garantia, nota fiscal e trocas. Não coloque telefone, e-mail ou links.
+          </span>
+        </label>
         <SubmitButton pending="Salvando…">Salvar</SubmitButton>
       </form>
     </div>

@@ -54,17 +54,18 @@ export async function settingsOf(ownerId: string): Promise<SellerSettings> {
       visits_drop_alert: 0.3,
       low_stock_days: 7,
       min_margin: 0.1,
+      store_info: null,
     }
   );
 }
 
 export async function saveSettings(s: SellerSettings) {
   await query(
-    `insert into seller_settings (owner_id, tax_rate, visits_drop_alert, low_stock_days, min_margin)
-     values ($1, $2, $3, $4, $5)
+    `insert into seller_settings (owner_id, tax_rate, visits_drop_alert, low_stock_days, min_margin, store_info)
+     values ($1, $2, $3, $4, $5, $6)
      on conflict (owner_id) do update set tax_rate = excluded.tax_rate, visits_drop_alert = excluded.visits_drop_alert,
-       low_stock_days = excluded.low_stock_days, min_margin = excluded.min_margin, updated_at = now()`,
-    [s.owner_id, s.tax_rate, s.visits_drop_alert, s.low_stock_days, s.min_margin],
+       low_stock_days = excluded.low_stock_days, min_margin = excluded.min_margin, store_info = excluded.store_info, updated_at = now()`,
+    [s.owner_id, s.tax_rate, s.visits_drop_alert, s.low_stock_days, s.min_margin, s.store_info ?? null],
   );
 }
 

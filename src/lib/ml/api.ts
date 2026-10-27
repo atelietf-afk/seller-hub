@@ -44,6 +44,17 @@ export class MlApi {
     }
   }
 
+  async post<T>(path: string, body: unknown): Promise<T> {
+    const res = await this.fetchFn(`${ML_API}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${await this.getToken()}`, Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    if (!res.ok) throw new MlApiError(res.status, path, await res.text());
+    return (await res.json()) as T;
+  }
+
   me() {
     return this.get<MlUser>("/users/me");
   }
@@ -119,10 +130,42 @@ export class MlApi {
     return this.get<MlQuestion>(`/questions/${id}?api_version=4`);
   }
 
+  /** Perguntas sem resposta, das mais antigas para as mais novas (até 500). */
   async unansweredQuestions(sellerId: number): Promise<MlQuestion[]> {
-    const q = new URLSearchParams({ seller_id: String(sellerId), status: "UNANSWERED", api_version: "4", limit: "50" });
-    return (await this.get<{ questions: MlQuestion[] }>(`/questions/search?${q}`)).questions;
+    const out: MlQuestion[] = [];
+    for (let offset = 0; offset < 500; offset += 50) {
+      const q = new URLSearchParams({
+        seller_id: String(sellerId),
+        status: "UNANSWERED",
+        api_version: "4",
+        sort_fields: "date_created",
+        sort_types: "ASC",
+        limit: "50",
+        offset: String(offset),
+      });
+      const page = await this.get<{ questions: MlQuestion[]; total?: number }>(`/questions/search?${q}`);
+      out.push(...page.questions);
+      if (page.questions.length < 50 || (page.total != null && offset + 50 >= page.total)) break;
+    }
+    return out;
   }
+
+  /** Responde uma pergunta no Mercado Livre. */
+  answerQuestion(questionId: number | string, text: string) {
+    return this.post<MlQuestion>("/answers", { question_id: Number(questionId), text });
+  }
+
+  /** Descrição do anúncio em texto (pode não existir). */
+  async itemDescription(itemId: string): Promise<string | null> {
+    try {
+      const d = await this.get<{ plain_text?: string; text?: string }>(`/items/${itemId}/description`);
+      return (d.plain_text || d.text || "").trim() || null;
+    } catch (err) {
+      if (err instanceof MlApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
 
   visits(itemId: string, lastDays = 30) {
     return this.get<MlVisitsWindow>(`/items/${itemId}/visits/time_window?last=${lastDays}&unit=day`);

@@ -22,6 +22,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let periods: typeof import("@/lib/analytics/periods");
   let backfill: typeof import("@/lib/ml/backfill");
   let sync: typeof import("@/lib/ml/sync");
+  let questionsData: typeof import("@/lib/data/questions");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -48,6 +49,7 @@ describe.skipIf(!url)("banco de dados", () => {
     periods = await import("@/lib/analytics/periods");
     backfill = await import("@/lib/ml/backfill");
     sync = await import("@/lib/ml/sync");
+    questionsData = await import("@/lib/data/questions");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -365,9 +367,34 @@ describe.skipIf(!url)("banco de dados", () => {
     await db.query("delete from orders where id >= 900000");
   });
 
+  it("perguntas: pendentes, rascunho e resposta só do próprio vendedor", async () => {
+    const at = new Date().toISOString();
+    await store.upsertQuestion(accA, { id: 501, item_id: "MLBA1", text: "Funciona com Android?", status: "UNANSWERED", date_created: at });
+    await store.upsertQuestion(accA, { id: 502, item_id: "MLBA1", text: "Tem nota?", status: "ANSWERED", date_created: at, answer: { text: "Sim, enviamos nota fiscal." } });
+    const pending = await questionsData.pendingQuestions(A, accA);
+    expect(pending.map((q) => q.id)).toContain(501);
+    expect(pending.find((q) => q.id === 501)).toMatchObject({ title: "MLBA1", draft: null });
+    expect(await questionsData.pendingQuestions(B, accA)).toEqual([]);
+    expect(await questionsData.ownPendingQuestion(B, accA, 501)).toBeNull();
+    expect(await questionsData.ownPendingQuestion(A, accA, 502)).toBeNull(); // já respondida
+    expect(await questionsData.ownPendingQuestion(A, accA, 501)).toMatchObject({ id: 501, text: "Funciona com Android?", draft: null });
+    expect(await questionsData.pastAnswers(accA, "MLBA1")).toContainEqual({ question: "Tem nota?", answer: "Sim, enviamos nota fiscal." });
+
+    await questionsData.saveDraft(accA, 501, { answer: "Olá! Sim.", confidence: "alta", missing: [] });
+    expect((await questionsData.pendingQuestions(A, accA)).find((q) => q.id === 501)?.draft).toEqual({ answer: "Olá! Sim.", confidence: "alta", missing: [] });
+    await questionsData.markAnswered(accA, 501, "Olá! Sim, funciona.");
+    expect((await questionsData.pendingQuestions(A, accA)).some((q) => q.id === 501)).toBe(false);
+    expect((await questionsData.recentlyAnswered(A, accA))[0]).toMatchObject({ id: 501, answer: "Olá! Sim, funciona." });
+    expect(await questionsData.recentlyAnswered(B, accA)).toEqual([]);
+
+    await data.saveSettings({ ...(await data.settingsOf(A)), store_info: "Enviamos em 24h." });
+    expect((await data.settingsOf(A)).store_info).toBe("Enviamos em 24h.");
+  });
+
   it("sincronização completa: reaproveita visitas recentes e registra o resumo", async () => {
     await tokens.saveTokens(accA, { access_token: "tok", refresh_token: "r", expires_in: 21600, user_id: 1 });
     await db.query("update ml_accounts set orders_history_since = now() - interval '200 days', visits_synced_at = null where id = $1", [accA]);
+    await store.upsertQuestion(accA, { id: 777, item_id: "MLBA1", text: "x", status: "UNANSWERED", date_created: new Date().toISOString() });
     const visitCalls: string[] = [];
     const respond = (body: unknown) => new Response(JSON.stringify(body));
     vi.stubGlobal(
@@ -384,6 +411,7 @@ describe.skipIf(!url)("banco de dados", () => {
         }
         if (u.includes("/orders/search")) return respond({ results: [], paging: { total: 0 } });
         if (u.includes("/questions/search")) return respond({ questions: [] });
+        if (u.includes("/questions/777")) return respond({ id: 777, item_id: "MLBA1", text: "x", status: "ANSWERED", date_created: new Date().toISOString(), answer: { text: "respondida no app" } });
         if (u.includes("/advertising/advertisers")) return respond({ advertisers: [] });
         return respond([]);
       }),
@@ -400,6 +428,8 @@ describe.skipIf(!url)("banco de dados", () => {
     }
     const [row] = await db.query<{ last_sync_result: { items: number } }>("select last_sync_result from ml_accounts where id = $1", [accA]);
     expect(row.last_sync_result.items).toBe(2);
+    const [q] = await db.query<{ status: string; answer: string }>("select status, answer from questions where id = 777");
+    expect(q).toEqual({ status: "ANSWERED", answer: "respondida no app" });
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {

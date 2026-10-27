@@ -5,6 +5,7 @@ import { currentAccount } from "@/lib/session";
 const NAV = [
   { href: "/dashboard", label: "Painel" },
   { href: "/produtos", label: "Produtos e funil" },
+  { href: "/perguntas", label: "Perguntas" },
   { href: "/publicidade", label: "Publicidade" },
   { href: "/espiao", label: "Espião" },
   { href: "/relatorios", label: "Relatórios" },

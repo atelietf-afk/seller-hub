@@ -10,6 +10,11 @@ import * as spyData from "@/lib/data/spy";
 import { suggestTitles } from "@/lib/ai/titles";
 import { lastCompleteMonth, lastCompleteWeek } from "@/lib/analytics/periods";
 import { generatePeriodReport } from "@/lib/period-report";
+import { answerProblems } from "@/lib/analytics/answers";
+import { createAnswerDraft } from "@/lib/answer-drafts";
+import * as questionsData from "@/lib/data/questions";
+import { MlApiError } from "@/lib/ml/api";
+import { mapLimit } from "@/lib/ml/store";
 import { competitorTermGaps, parseListingId, trendGaps } from "@/lib/analytics/keywords";
 import { MlSpyApi, type Listing } from "@/lib/ml/spy-api";
 import { saveCompetitorSnapshot } from "@/lib/ml/spy-sync";
@@ -109,12 +114,18 @@ export async function saveSettings(formData: FormData) {
     return n !== null && n <= 100 ? n / 100 : fallback;
   };
   const days = Number(formData.get("lowStockDays"));
+  const storeInfo = String(formData.get("storeInfo") ?? "").trim().slice(0, 3000) || null;
+  // A IA copia daqui para as respostas: dado de contato aqui viraria punição no ML.
+  if (storeInfo && answerProblems(storeInfo).some((p) => ["phone", "email", "link", "social"].includes(p.code))) {
+    redirect("/configuracoes?ml=contato-na-loja");
+  }
   await data.saveSettings({
     owner_id: user.id,
     tax_rate: pct("taxRate", 0.06),
     visits_drop_alert: pct("visitsDrop", 0.3),
     min_margin: pct("minMargin", 0.1),
     low_stock_days: Number.isInteger(days) && days > 0 ? days : 7,
+    store_info: storeInfo,
   });
   revalidatePath("/", "layout");
 }
@@ -200,4 +211,66 @@ export async function generateReportNow(formData: FormData) {
   }
   revalidatePath("/relatorios");
   redirect(ok ? `/relatorios/${period.kind}/${period.start}` : "/relatorios?erro=1");
+}
+
+// Perguntas -----------------------------------------------------------------
+
+const MAX_BULK_DRAFTS = 10;
+
+export async function draftAnswerAction(formData: FormData) {
+  const account = await ownAccount();
+  const q = await questionsData.ownPendingQuestion(account.owner_id, account.id, Number(formData.get("questionId")));
+  if (!q) redirect("/perguntas");
+  let ok = false;
+  try {
+    await createAnswerDraft(account, q);
+    ok = true;
+  } catch (err) {
+    console.error("Rascunho de resposta falhou", q.id, err);
+  }
+  revalidatePath("/perguntas");
+  redirect(`/perguntas${ok ? "" : "?erro=ia"}#q-${q.id}`);
+}
+
+export async function draftAllAction() {
+  const account = await ownAccount();
+  const pending = (await questionsData.pendingQuestions(account.owner_id, account.id)).filter((q) => !q.draft).slice(0, MAX_BULK_DRAFTS);
+  let failed = 0;
+  await mapLimit(pending, 3, async (q) => {
+    await createAnswerDraft(account, q).catch((err) => {
+      failed++;
+      console.error("Rascunho de resposta falhou", q.id, err);
+    });
+  });
+  revalidatePath("/perguntas");
+  redirect(failed ? "/perguntas?erro=ia" : "/perguntas");
+}
+
+export async function sendAnswerAction(formData: FormData) {
+  const account = await ownAccount();
+  const q = await questionsData.ownPendingQuestion(account.owner_id, account.id, Number(formData.get("questionId")));
+  if (!q) redirect("/perguntas?erro=respondida");
+  const text = String(formData.get("answer") ?? "").trim();
+  const back = (erro: string) => redirect(`/perguntas?erro=${erro}&q=${q!.id}#q-${q!.id}`);
+  // Marcadores como "[confirmar voltagem]" indicam que o vendedor ainda precisa completar.
+  const problem = answerProblems(text)[0]?.code ?? (/\[[^\]]{2,}\]/.test(text) ? "marcador" : null);
+  if (problem) {
+    // Guarda o que o vendedor escreveu para não perder a edição ao corrigir.
+    if (text) await questionsData.saveDraft(account.id, q!.id, { confidence: "media", missing: [], ...q!.draft, answer: text });
+    back(problem);
+  }
+
+  let result: "ok" | "respondida" | "ml" = "ok";
+  try {
+    await apiFor(account.id).answerQuestion(q!.id, text);
+    await questionsData.markAnswered(account.id, q!.id, text);
+  } catch (err) {
+    console.error("Envio de resposta falhou", q!.id, err);
+    // A pergunta pode já ter sido respondida (ou apagada) pelo app do ML.
+    result = err instanceof MlApiError && [400, 404].includes(err.status) ? "respondida" : "ml";
+  }
+  revalidatePath("/perguntas");
+  revalidatePath("/dashboard");
+  if (result !== "ok") back(result);
+  redirect("/perguntas?enviada=1");
 }

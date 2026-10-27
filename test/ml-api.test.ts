@@ -146,3 +146,29 @@ describe("retryDelayMs", () => {
     expect(retryDelayMs("abc", 1)).toBe(2000);
   });
 });
+
+describe("perguntas", () => {
+  it("envia a resposta com POST /answers", async () => {
+    const fetchFn = vi.fn(async () => json({ id: 5, status: "ANSWERED" }));
+    await new MlApi(async () => "t", fetchFn as typeof fetch).answerQuestion("5", "Olá! Sim, funciona.");
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.mercadolibre.com/answers");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ question_id: 5, text: "Olá! Sim, funciona." });
+  });
+
+  it("descrição inexistente vira null", async () => {
+    const fetchFn = vi.fn(async () => new Response("not found", { status: 404 }));
+    expect(await new MlApi(async () => "t", fetchFn as typeof fetch).itemDescription("MLB1")).toBeNull();
+  });
+
+  it("pagina as perguntas sem resposta", async () => {
+    let n = 0;
+    const fetchFn = vi.fn(async () => {
+      n++;
+      return json({ questions: Array.from({ length: n === 1 ? 50 : 3 }, (_, i) => ({ id: n * 100 + i })), total: 53 });
+    });
+    expect(await new MlApi(async () => "t", fetchFn as typeof fetch).unansweredQuestions(1)).toHaveLength(53);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+});
