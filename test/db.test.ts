@@ -46,6 +46,13 @@ describe.skipIf(!url)("banco de dados", () => {
     await db?.pool.end();
   });
 
+  it("indica se a conta concluiu a conexão (tem tokens)", async () => {
+    expect((await data.accountsOf(B))[0].connected).toBe(false);
+    await tokens.saveTokens(accB, { access_token: "a", refresh_token: "r", expires_in: 21600, user_id: 2 });
+    expect((await data.accountsOf(B))[0].connected).toBe(true);
+    await expect(tokens.saveTokens(accB, { access_token: "a", expires_in: 21600, user_id: 2 })).rejects.toThrow(/offline_access/);
+  });
+
   it("não deixa outro usuário assumir uma conta do ML já vinculada", async () => {
     expect(await data.linkAccount(B, { id: 1, nickname: "x", site_id: "MLB", reputation: null })).toBeNull();
     expect((await data.accountsOf(A)).map((a) => a.nickname)).toEqual(["loja_a"]);

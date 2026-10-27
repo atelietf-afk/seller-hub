@@ -11,10 +11,16 @@ import { brl, change, int, pct } from "@/lib/format";
 import { buildReport } from "@/lib/report";
 import { currentAccount } from "@/lib/session";
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ conectado?: string }> }) {
+const ERRORS: Record<string, string> = {
+  sync: "Não conseguimos sincronizar com o Mercado Livre agora. Tente de novo em alguns minutos.",
+  resumo: "Não conseguimos gerar a análise agora. Confira a chave da Anthropic e tente de novo.",
+  "sem-conexao": "A conexão com o Mercado Livre não foi concluída. Clique em Reconectar.",
+};
+
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ conectado?: string; erro?: string }> }) {
   const { account } = await currentAccount();
   if (!account) return <NoAccount />;
-  const { conectado } = await searchParams;
+  const { conectado, erro } = await searchParams;
 
   const [report, events, summaryRow] = await Promise.all([
     buildReport(account.id, account.owner_id, 7),
@@ -41,6 +47,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <SubmitButton pending="Sincronizando…">Sincronizar agora</SubmitButton>
         </form>
       </div>
+      {!account.connected && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md bg-critical/10 p-3 text-sm">
+          <SeverityBadge severity="critical" label="Desconectado" />
+          <span>A conexão com o Mercado Livre não foi concluída, então não há dados para mostrar.</span>
+          <Link href="/api/ml/connect" className="ml-auto rounded-md bg-accent px-3 py-1.5 font-medium text-white">
+            Reconectar
+          </Link>
+        </div>
+      )}
+      {erro && ERRORS[erro] && account.connected !== false && (
+        <p className="rounded-md bg-critical/10 p-3 text-sm text-critical">{ERRORS[erro]}</p>
+      )}
       {conectado && (
         <p className="rounded-md bg-good/10 p-3 text-sm">
           Conta conectada! Estamos buscando seus anúncios, pedidos e visitas. Em alguns minutos os números aparecem aqui.

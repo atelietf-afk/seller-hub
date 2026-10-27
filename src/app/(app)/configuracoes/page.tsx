@@ -31,6 +31,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <li key={a.id} className="flex items-center gap-3 py-2">
               <span className="font-medium">{a.nickname}</span>
               <span className="text-muted">ID {a.ml_user_id}</span>
+              {!a.connected && (
+                <Link href="/api/ml/connect" className="text-xs font-medium text-critical underline">
+                  Conexão incompleta: reconectar
+                </Link>
+              )}
               <form action={disconnectAccount} className="ml-auto">
                 <input type="hidden" name="accountId" value={a.id} />
                 <button className="text-xs text-critical">Desconectar</button>

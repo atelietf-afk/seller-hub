@@ -9,6 +9,8 @@ export interface MlAccount {
   reputation: { level_id?: string | null } | null;
   last_synced_at: string | null;
   created_at: string;
+  /** Só vem em accountsOf: false quando a autorização do ML não terminou (sem tokens). */
+  connected?: boolean;
 }
 
 export interface SellerSettings {

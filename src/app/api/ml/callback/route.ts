@@ -15,7 +15,10 @@ export const maxDuration = 300;
 // Volta da autorização do ML: troca o código por tokens e cadastra a conta.
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const back = (msg: string) => NextResponse.redirect(new URL(`/configuracoes?ml=${msg}`, request.url));
+  const back = (msg: string) => {
+    console.warn("Conexão com o ML não concluída:", msg);
+    return NextResponse.redirect(new URL(`/configuracoes?ml=${msg}`, request.url));
+  };
 
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.redirect(new URL("/login", request.url));
@@ -54,6 +57,7 @@ export async function GET(request: Request) {
   await query("insert into seller_settings (owner_id) values ($1) on conflict do nothing", [session.user.id]);
 
   // Primeira sincronização roda depois de responder, para o vendedor não esperar.
+  console.info("Conta do ML conectada", account.id, me.nickname);
   after(() => syncAccount(account.id).catch((err) => console.error("Primeira sincronização falhou", err)));
   return NextResponse.redirect(new URL("/dashboard?conectado=1", request.url));
 }

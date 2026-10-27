@@ -7,7 +7,11 @@ import type { EventRow, MlAccount, SellerSettings } from "./types";
 // desse usuário; as que recebem só accountId são para uso interno (sync, webhooks, cron).
 
 export function accountsOf(ownerId: string) {
-  return query<MlAccount>("select * from ml_accounts where owner_id = $1 order by created_at", [ownerId]);
+  return query<MlAccount>(
+    `select a.*, exists (select 1 from ml_tokens t where t.account_id = a.id) as connected
+     from ml_accounts a where a.owner_id = $1 order by a.created_at`,
+    [ownerId],
+  );
 }
 
 export function accountById(accountId: string) {

@@ -57,13 +57,24 @@ async function ownAccount() {
 
 export async function syncNow() {
   const account = await ownAccount();
-  await syncAccount(account.id);
+  if (!account.connected) redirect("/dashboard?erro=sem-conexao");
+  try {
+    await syncAccount(account.id);
+  } catch (err) {
+    console.error("Sincronização manual falhou", account.id, err);
+    redirect("/dashboard?erro=sync");
+  }
   revalidatePath("/", "layout");
 }
 
 export async function summarizeNow() {
   const account = await ownAccount();
-  await createDailySummary(account.id, account.owner_id);
+  try {
+    await createDailySummary(account.id, account.owner_id);
+  } catch (err) {
+    console.error("Resumo com IA falhou", account.id, err);
+    redirect("/dashboard?erro=resumo");
+  }
   revalidatePath("/dashboard");
 }
 
