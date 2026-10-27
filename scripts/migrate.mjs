@@ -1,9 +1,15 @@
 // Aplica as migrações de db/migrations em ordem. Uso: DATABASE_URL=... npm run db:migrate
+// Na Vercel roda sozinho antes de cada build (script "vercel-build").
 import { readdir, readFile } from "node:fs/promises";
 import pg from "pg";
 
 const url = process.env.DATABASE_URL;
 if (!url) {
+  // No deploy da Vercel, o primeiro build pode acontecer antes de o banco ser ligado ao projeto.
+  if (process.env.VERCEL) {
+    console.warn("DATABASE_URL ausente: migrações não aplicadas. Ligue o banco Neon ao projeto e faça um novo deploy.");
+    process.exit(0);
+  }
   console.error("Defina DATABASE_URL");
   process.exit(1);
 }

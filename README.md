@@ -33,7 +33,7 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
 
 1. **Banco (Neon, plano gratuito):** na Vercel, *Storage → Create Database → Neon*, ligado ao projeto
    (isso cria a variável `DATABASE_URL`). Ou crie direto em [neon.tech](https://neon.tech) e copie a connection string *pooled*.
-   Depois rode uma vez, no seu computador: `DATABASE_URL="..." npm run db:migrate`.
+   As tabelas são criadas sozinhas a cada deploy (script `vercel-build`); depois de ligar o banco, faça um *Redeploy*.
 2. **Mercado Livre** ([developers.mercadolivre.com.br](https://developers.mercadolivre.com.br) → sua aplicação):
    - *Redirect URI*: `https://SEU-DOMINIO/api/ml/callback`
    - *URL de notificações*: `https://SEU-DOMINIO/api/ml/notifications`
