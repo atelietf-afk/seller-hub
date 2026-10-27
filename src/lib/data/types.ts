@@ -10,6 +10,7 @@ export interface MlAccount {
   last_synced_at: string | null;
   created_at: string;
   orders_history_since?: string | null;
+  visits_synced_at?: string | null;
   /** Só vem em accountsOf: false quando a autorização do ML não terminou (sem tokens). */
   connected?: boolean;
 }

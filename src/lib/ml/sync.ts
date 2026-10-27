@@ -15,7 +15,12 @@ export interface SyncResult {
   orders: number;
   questions: number;
   alerts: number;
+  visits: { fetched: number; failed: number; reused: boolean };
+  historySince: string | null; // até onde o histórico de pedidos já chegou
+  seconds: number;
 }
+
+const VISITS_MAX_AGE_MS = 6 * 3600_000;
 
 /**
  * Sincronização completa de uma conta: anúncios, visitas (30 dias), pedidos,
@@ -42,19 +47,39 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
   const items = await api.items(ids);
   await upsertItems(accountId, items);
 
-  // Visitas por dia dos anúncios ativos
+  // Visitas por dia dos anúncios ativos. Mudam devagar e custam uma chamada por anúncio,
+  // então só buscamos de novo depois de 6 horas (evita o limite de chamadas do ML).
   const active = items.filter((i) => i.status === "active");
   const series: VisitSeries[] = [];
-  await mapLimit(active, 5, async (item) => {
-    try {
-      const w = await api.visits(item.id, 30);
-      const daily = w.results.map((r) => ({ day: r.date.slice(0, 10), visits: r.total }));
-      series.push({ itemId: item.id, title: item.title, daily });
-      await saveVisits(item.id, daily);
-    } catch (err) {
-      console.warn(`Visitas de ${item.id} indisponíveis`, err);
-    }
-  });
+  const visits = { fetched: 0, failed: 0, reused: false };
+  const visitsFresh =
+    account.visits_synced_at && Date.now() - new Date(account.visits_synced_at).getTime() < VISITS_MAX_AGE_MS;
+  if (visitsFresh) {
+    visits.reused = true;
+    const rows = await query<{ item_id: string; day: string; visits: number }>(
+      `select v.item_id, v.day, v.visits from item_visits_daily v join items i on i.id = v.item_id
+       where i.account_id = $1 and i.status = 'active' and v.day > current_date - 30 order by v.day`,
+      [accountId],
+    );
+    const byItem = new Map<string, { day: string; visits: number }[]>();
+    for (const r of rows) byItem.set(r.item_id, [...(byItem.get(r.item_id) ?? []), { day: r.day, visits: r.visits }]);
+    for (const item of active) series.push({ itemId: item.id, title: item.title, daily: byItem.get(item.id) ?? [] });
+  } else {
+    await mapLimit(active, 3, async (item) => {
+      try {
+        const w = await api.visits(item.id, 30);
+        const daily = w.results.map((r) => ({ day: r.date.slice(0, 10), visits: r.total }));
+        series.push({ itemId: item.id, title: item.title, daily });
+        await saveVisits(item.id, daily);
+        visits.fetched++;
+      } catch (err) {
+        visits.failed++;
+        console.warn(`Visitas de ${item.id} indisponíveis`, err instanceof Error ? err.message.slice(0, 160) : err);
+      }
+    });
+    // Só marca como atualizado se a maioria deu certo; senão tenta de novo na próxima.
+    if (visits.fetched >= visits.failed) await query("update ml_accounts set visits_synced_at = now() where id = $1", [accountId]);
+  }
 
   // Pedidos: 30 dias na primeira vez, depois desde a última sincronização (com 1 dia de folga).
   const from = account.last_synced_at
@@ -67,9 +92,12 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
   }
 
   // Histórico mais antigo, aos poucos, com limite de tempo para caber na função.
-  await backfillOrders(api, accountId, sellerId, new Date(account.orders_history_since ?? from), {
+  const historySince = await backfillOrders(api, accountId, sellerId, new Date(account.orders_history_since ?? from), {
     deadline: startedAt + 120_000,
-  }).catch((err) => console.error("Histórico de pedidos interrompido", accountId, err));
+  }).catch((err) => {
+    console.error("Histórico de pedidos interrompido", accountId, err);
+    return null;
+  });
 
   // Perguntas sem resposta
   const questions = await api.unansweredQuestions(sellerId);
@@ -101,5 +129,16 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
   await syncAds(accountId);
   await syncSpy(accountId).catch((err) => console.error("Espião falhou", accountId, err));
 
-  return { items: items.length, orders: orders.length, questions: questions.length, alerts: alerts.length + lowStock.length };
+  const result = {
+    items: items.length,
+    orders: orders.length,
+    questions: questions.length,
+    alerts: alerts.length + lowStock.length,
+    visits,
+    historySince: historySince?.toISOString() ?? null,
+    seconds: Math.round((Date.now() - startedAt) / 1000),
+  };
+  await query("update ml_accounts set last_sync_result = $2 where id = $1", [accountId, JSON.stringify(result)]);
+  console.info("Sincronização concluída", accountId, JSON.stringify(result));
+  return result;
 }

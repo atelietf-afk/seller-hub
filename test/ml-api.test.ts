@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MlAdsApi } from "@/lib/ml/ads-api";
-import { MlApi, MlApiError } from "@/lib/ml/api";
+import { MlApi, MlApiError, retryDelayMs } from "@/lib/ml/api";
 import { authorizationUrl, callbackProblem, hasRefreshToken, refreshTokens } from "@/lib/ml/oauth";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -134,5 +134,15 @@ describe("MlAdsApi", () => {
     expect(await ads.advertiser()).toBeNull();
     const init = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1];
     expect((init.headers as Record<string, string>)["Api-Version"]).toBe("1");
+  });
+});
+
+describe("retryDelayMs", () => {
+  it("respeita o Retry-After do ML e cresce sem ele, com teto", () => {
+    expect(retryDelayMs("3", 0)).toBe(3000);
+    expect(retryDelayMs(null, 0)).toBe(1000);
+    expect(retryDelayMs(null, 2)).toBe(4000);
+    expect(retryDelayMs("120", 0)).toBe(10_000);
+    expect(retryDelayMs("abc", 1)).toBe(2000);
   });
 });

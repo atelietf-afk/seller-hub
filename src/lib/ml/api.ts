@@ -14,6 +14,12 @@ export class MlApiError extends Error {
 
 type Fetch = typeof fetch;
 
+/** Espera antes de tentar de novo: o Retry-After (em segundos) se vier, senão 1s, 2s, 4s; no máximo 10s. */
+export function retryDelayMs(retryAfter: string | null, attempt: number): number {
+  const s = retryAfter != null ? Number(retryAfter) : NaN;
+  return Math.min(Number.isFinite(s) && s >= 0 ? s * 1000 : 1000 * 2 ** attempt, 10_000);
+}
+
 // Cliente fino da API. Recebe uma função que devolve um access token válido,
 // para que a renovação do token fique em um só lugar (tokens.ts).
 export class MlApi {
@@ -29,9 +35,9 @@ export class MlApi {
         cache: "no-store",
       });
       if (res.ok) return (await res.json()) as T;
-      // 429 e 5xx: tenta de novo com espera crescente (até 3 vezes).
+      // 429 e 5xx: tenta de novo (até 3 vezes), respeitando o Retry-After do ML quando vier.
       if ((res.status === 429 || res.status >= 500) && attempt < 3) {
-        await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+        await new Promise((r) => setTimeout(r, retryDelayMs(res.headers.get("retry-after"), attempt)));
         continue;
       }
       throw new MlApiError(res.status, path, await res.text());

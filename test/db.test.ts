@@ -21,6 +21,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let reportsData: typeof import("@/lib/data/reports");
   let periods: typeof import("@/lib/analytics/periods");
   let backfill: typeof import("@/lib/ml/backfill");
+  let sync: typeof import("@/lib/ml/sync");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -46,6 +47,7 @@ describe.skipIf(!url)("banco de dados", () => {
     reportsData = await import("@/lib/data/reports");
     periods = await import("@/lib/analytics/periods");
     backfill = await import("@/lib/ml/backfill");
+    sync = await import("@/lib/ml/sync");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -361,6 +363,43 @@ describe.skipIf(!url)("banco de dados", () => {
     await backfill.backfillOrders(api, accA, 1, reached, { now, deadline: Date.now() + 60_000 });
     expect(calls).toHaveLength(0);
     await db.query("delete from orders where id >= 900000");
+  });
+
+  it("sincronização completa: reaproveita visitas recentes e registra o resumo", async () => {
+    await tokens.saveTokens(accA, { access_token: "tok", refresh_token: "r", expires_in: 21600, user_id: 1 });
+    await db.query("update ml_accounts set orders_history_since = now() - interval '200 days', visits_synced_at = null where id = $1", [accA]);
+    const visitCalls: string[] = [];
+    const respond = (body: unknown) => new Response(JSON.stringify(body));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = String(url);
+        if (u.includes("/users/1/items/search")) return respond({ results: ["MLBA1", "MLBA2"], scroll_id: null });
+        if (u.match(/\/users\/1$/)) return respond({ id: 1, nickname: "loja_a", site_id: "MLB", seller_reputation: { level_id: "5_green" } });
+        if (u.includes("/items?ids="))
+          return respond(["MLBA1", "MLBA2"].map((id) => ({ code: 200, body: { id, title: id, price: 100, available_quantity: 10, sold_quantity: 1, status: "active" } })));
+        if (u.includes("/visits/time_window")) {
+          visitCalls.push(u);
+          return respond({ results: [{ date: new Date().toISOString(), total: 7 }] });
+        }
+        if (u.includes("/orders/search")) return respond({ results: [], paging: { total: 0 } });
+        if (u.includes("/questions/search")) return respond({ questions: [] });
+        if (u.includes("/advertising/advertisers")) return respond({ advertisers: [] });
+        return respond([]);
+      }),
+    );
+    try {
+      const r1 = await sync.syncAccount(accA);
+      expect(r1.visits).toEqual({ fetched: 2, failed: 0, reused: false });
+      expect(r1.historySince).not.toBeNull();
+      const r2 = await sync.syncAccount(accA);
+      expect(r2.visits.reused).toBe(true);
+      expect(visitCalls).toHaveLength(2); // a segunda rodada não chamou de novo
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const [row] = await db.query<{ last_sync_result: { items: number } }>("select last_sync_result from ml_accounts where id = $1", [accA]);
+    expect(row.last_sync_result.items).toBe(2);
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {
