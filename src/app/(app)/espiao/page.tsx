@@ -40,7 +40,11 @@ export default async function SpyPage({ searchParams }: { searchParams: Promise<
         <p className="mt-1 text-xs text-muted">
           {status?.spy_synced_at
             ? `Última atualização: ${new Date(status.spy_synced_at).toLocaleString("pt-BR")}` +
-              (r ? ` · ${r.categories} categorias · ${r.catalog} anúncios no catálogo · ${r.competitors} concorrentes` : "")
+              (r
+                ? ` · ${r.categories} categorias` +
+                  (r.trends != null && r.refreshed > 0 ? ` (${r.trends} buscas em alta, ${r.bestSellers} mais vendidos recebidos)` : "") +
+                  ` · ${r.catalog} anúncios no catálogo · ${r.competitors} concorrentes`
+                : "")
             : "Ainda não atualizado: clique em Sincronizar agora no Painel."}
         </p>
         {r && r.errors.length > 0 && (

@@ -218,7 +218,7 @@ describe.skipIf(!url)("banco de dados", () => {
     );
     try {
       const r1 = await spySync.syncSpy(accA);
-      expect(r1).toMatchObject({ categories: 1, refreshed: 1, catalog: 1, competitors: 1, errors: [] });
+      expect(r1).toMatchObject({ categories: 1, refreshed: 1, trends: 2, bestSellers: 1, catalog: 1, competitors: 1, errors: [] });
       // Dado público recente não é buscado de novo
       expect((await spySync.syncSpy(accA)).refreshed).toBe(0);
     } finally {

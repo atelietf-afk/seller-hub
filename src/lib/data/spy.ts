@@ -189,7 +189,15 @@ export async function saveTitleSuggestion(accountId: string, itemId: string, con
 
 export interface SpyStatus {
   spy_synced_at: string | null;
-  spy_result: { categories: number; refreshed: number; catalog: number; competitors: number; errors: string[] } | null;
+  spy_result: {
+    categories: number;
+    refreshed: number;
+    trends?: number;
+    bestSellers?: number;
+    catalog: number;
+    competitors: number;
+    errors: string[];
+  } | null;
 }
 
 export function spyStatus(ownerId: string, accountId: string) {

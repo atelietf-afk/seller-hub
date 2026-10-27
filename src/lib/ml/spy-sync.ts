@@ -11,6 +11,8 @@ const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", curren
 export interface SpySyncResult {
   categories: number;
   refreshed: number;
+  trends: number;       // buscas em alta recebidas nesta sincronização
+  bestSellers: number;  // mais vendidos recebidos nesta sincronização
   catalog: number;
   competitors: number;
   errors: string[];
@@ -32,7 +34,12 @@ async function topCategories(accountId: string): Promise<string[]> {
   return rows.map((r) => r.category_id);
 }
 
-async function refreshCategory(spy: MlSpyApi, site: string, categoryId: string) {
+async function refreshCategory(spy: MlSpyApi, site: string, categoryId: string, result: SpySyncResult) {
+  // Falha numa parte não impede as outras, mas fica registrada (os logs da Vercel duram pouco).
+  const note = (part: string) => (err: unknown) => {
+    result.errors.push(`${part} ${categoryId}: ${err instanceof Error ? err.message.slice(0, 160) : String(err)}`);
+    return [];
+  };
   const fresh = await one<{ fresh: boolean }>(
     `select bool_and(updated_at > now() - make_interval(hours => $2)) as fresh
      from (select updated_at from category_trends where category_id = $1
@@ -50,7 +57,8 @@ async function refreshCategory(spy: MlSpyApi, site: string, categoryId: string) 
   }
 
   // Só troca os dados guardados quando a API devolveu algo; numa falha, mantém os anteriores.
-  const trends = await spy.trends(site, categoryId).catch(() => []);
+  const trends = await spy.trends(site, categoryId).catch(note("tendências"));
+  result.trends += trends.length;
   if (trends.length) {
     await query("delete from category_trends where category_id = $1", [categoryId]);
     await query(
@@ -61,9 +69,11 @@ async function refreshCategory(spy: MlSpyApi, site: string, categoryId: string) 
     );
   }
 
-  const highlights = await spy.highlights(site, categoryId).catch(() => []);
+  const highlights = await spy.highlights(site, categoryId).catch(note("mais vendidos"));
   const itemIds = highlights.filter((h) => h.kind === "ITEM").map((h) => h.id);
-  const byId = new Map<string, Listing>((itemIds.length ? await spy.listings(itemIds).catch(() => []) : []).map((l) => [l.id, l]));
+  const byId = new Map<string, Listing>(
+    (itemIds.length ? await spy.listings(itemIds).catch(note("anúncios dos mais vendidos")) : []).map((l) => [l.id, l]),
+  );
   await mapLimit(
     highlights.filter((h) => h.kind !== "ITEM"),
     4,
@@ -73,6 +83,7 @@ async function refreshCategory(spy: MlSpyApi, site: string, categoryId: string) 
     },
   );
   const rows = highlights.map((h) => ({ ...h, l: byId.get(h.id) }));
+  result.bestSellers += rows.length;
   if (rows.length) {
     await query("delete from category_best_sellers where category_id = $1", [categoryId]);
     await query(
@@ -106,7 +117,7 @@ const WINNING = new Set(["winning", "sharing_first_place"]);
  * dos anúncios dele e acompanhamento dos concorrentes escolhidos. Nunca lança erro.
  */
 export async function syncSpy(accountId: string): Promise<SpySyncResult> {
-  const result: SpySyncResult = { categories: 0, refreshed: 0, catalog: 0, competitors: 0, errors: [] };
+  const result: SpySyncResult = { categories: 0, refreshed: 0, trends: 0, bestSellers: 0, catalog: 0, competitors: 0, errors: [] };
   const fail = (step: string) => (err: unknown) => {
     result.errors.push(`${step}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
   };
@@ -120,7 +131,7 @@ export async function syncSpy(accountId: string): Promise<SpySyncResult> {
   const categories = await topCategories(accountId);
   result.categories = categories.length;
   for (const c of categories) {
-    await refreshCategory(spy, account.site_id, c)
+    await refreshCategory(spy, account.site_id, c, result)
       .then((did) => void (did && result.refreshed++))
       .catch(fail(`categoria ${c}`));
   }
