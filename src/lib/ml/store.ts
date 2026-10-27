@@ -21,6 +21,9 @@ export function itemRow(accountId: string, i: MlItem) {
     logistic_type: i.shipping?.logistic_type ?? null,
     free_shipping: i.shipping?.free_shipping ?? false,
     health: i.health ?? null,
+    catalog_listing: i.catalog_listing ?? false,
+    catalog_product_id: i.catalog_product_id ?? null,
+    pictures_count: i.pictures ? i.pictures.length : null,
     updated_at: new Date().toISOString(),
   };
 }

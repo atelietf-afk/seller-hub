@@ -3,6 +3,7 @@ import { reputationAlert, visitsDropAlerts, type VisitSeries } from "@/lib/analy
 import { accountById, settingsOf } from "@/lib/data/accounts";
 import { query } from "@/lib/db";
 import { syncAds } from "./ads-sync";
+import { syncSpy } from "./spy-sync";
 import { mapLimit, pushEvents, saveVisits, upsertItems, upsertOrder, upsertQuestion } from "./store";
 import { apiFor } from "./tokens";
 
@@ -86,8 +87,9 @@ export async function syncAccount(accountId: string): Promise<SyncResult> {
     JSON.stringify(user.seller_reputation ?? null),
   ]);
 
-  // Publicidade por último: nunca derruba a sincronização principal.
+  // Publicidade e espião por último: nunca derrubam a sincronização principal.
   await syncAds(accountId);
+  await syncSpy(accountId).catch((err) => console.error("Espião falhou", accountId, err));
 
   return { items: items.length, orders: orders.length, questions: questions.length, alerts: alerts.length + lowStock.length };
 }

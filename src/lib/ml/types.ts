@@ -33,6 +33,10 @@ export interface MlItem {
   permalink?: string;
   health?: number | null;
   shipping?: { logistic_type?: string; free_shipping?: boolean };
+  catalog_listing?: boolean;
+  catalog_product_id?: string | null;
+  pictures?: { id: string }[];
+  seller_id?: number;
 }
 
 export interface MlOrder {

@@ -12,6 +12,7 @@ Painel para vendedores de marketplaces. Começa pelo **Mercado Livre**. Shopee, 
 | **Funil por anúncio** | Visitas → vendas → conversão, comparadas com a mediana da sua loja. Diagnostica: pouca visita, conversão baixa, "joia escondida" (converte bem, pouca visita), ruptura de estoque, margem baixa ou negativa. |
 | **Alertas** | Queda de visitas semana contra semana, reputação piorando, anúncio ativo sem estoque. |
 | **Publicidade (Product Ads)** | Campanhas e produtos anunciados dos últimos 30 dias: investimento, vendas, ACOS, ROAS, TACOS, CTR e CPC. Cruza com o lucro real: mostra o **lucro após anúncios** e o **ACOS de equilíbrio** de cada produto, e aponta onde o anúncio dá prejuízo, onde vale escalar e onde gasta sem vender. |
+| **Espião** | **Palavras-chave**: buscas em alta na categoria e termos dos mais vendidos que faltam no seu título, com títulos sugeridos pela IA (até 60 caracteres, sem inventar características). **Mais vendidos**: top 20 de cada categoria sua, com preço comparado à mediana, frete grátis e Full. **Catálogo**: se você está ganhando a vitrine e o preço para ganhar, com alerta ao perder. **Concorrentes**: cole o link de um anúncio e acompanhe preço e situação dia a dia, com alerta quando baixarem o preço. |
 | **Resumo diário com IA** | O Claude lê os números da semana e explica o que mudou e o que fazer, em linguagem simples. |
 
 ## Arquitetura
@@ -68,8 +69,11 @@ O ML só aceita redirect e webhooks em HTTPS público. Para testar localmente, u
 
 ## Próximas fases
 
-1. **Espião e palavras-chave (ML):** mais vendidos da categoria (`/highlights`), concorrentes monitorados (preço, estoque, vendas), sugestões de título e nota do anúncio.
 2. **Relatórios semanal e mensal:** PDF e envio por e-mail/WhatsApp.
 4. **Respostas com IA** para perguntas, **estoque unificado** e **precificação automática**.
 5. **Shopee, Amazon e TikTok Shop:** um conector por marketplace, convertendo tudo para as mesmas tabelas.
 6. **Para vender como serviço:** equipes (organizações), planos e cobrança, confirmação de e-mail e recuperação de senha, onboarding guiado.
+
+> **Limites do Mercado Livre para o espião:** desde 2025 a busca pública da API (`/sites/MLB/search`) responde 403 para aplicativos,
+> então não dá para listar todos os anúncios de um termo. O ML também não divulga vendas e estoque exatos de outros vendedores.
+> Por isso o espião usa tendências (`/trends`), mais vendidos (`/highlights`), disputa de catálogo (`/price_to_win`) e os anúncios que você escolhe acompanhar.

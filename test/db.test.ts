@@ -15,6 +15,8 @@ describe.skipIf(!url)("banco de dados", () => {
   let auth: typeof import("@/lib/auth");
   let adsSync: typeof import("@/lib/ml/ads-sync");
   let adsReport: typeof import("@/lib/ads-report");
+  let spySync: typeof import("@/lib/ml/spy-sync");
+  let spyData: typeof import("@/lib/data/spy");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -34,6 +36,8 @@ describe.skipIf(!url)("banco de dados", () => {
     report = await import("@/lib/report");
     adsSync = await import("@/lib/ml/ads-sync");
     adsReport = await import("@/lib/ads-report");
+    spySync = await import("@/lib/ml/spy-sync");
+    spyData = await import("@/lib/data/spy");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -187,6 +191,71 @@ describe.skipIf(!url)("banco de dados", () => {
     const [row] = await db.query<{ ads_status: string; ads_error: string }>("select ads_status, ads_error from ml_accounts where id = $1", [accA]);
     expect(row.ads_status).toBe("erro");
     expect(row.ads_error).toContain("403");
+  });
+
+  it("espião: categorias, catálogo e concorrentes, sem vazar para outro usuário", async () => {
+    await db.query("update items set category_id = 'MLB1051', catalog_listing = true where id = 'MLBA1'");
+    expect(await spyData.addCompetitor(A, accA, "MLBZ1", "item", "Loja Z")).toBe(true);
+    expect(await spyData.addCompetitor(B, accA, "MLBZ2", "item", null)).toBe(false); // conta de outro usuário
+
+    let competitorPrice = 100;
+    const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = String(url);
+        if (u.includes("/categories/MLB1051")) return respond({ id: "MLB1051", name: "Fones de Ouvido" });
+        if (u.includes("/trends/MLB/MLB1051")) return respond([{ keyword: "fone bluetooth" }, { keyword: "fone sem fio" }]);
+        if (u.includes("/highlights/MLB/category/MLB1051")) return respond({ content: [{ id: "MLBX1", position: 1, type: "ITEM" }] });
+        if (u.includes("/items/MLBA1/price_to_win"))
+          return respond({ status: "competing", current_price: 100, price_to_win: 95, winner: { item_id: "MLBX1", price: 95 }, reason: [] });
+        if (u.includes("/items?ids=")) {
+          const ids = new URL(u).searchParams.get("ids")!.split(",");
+          return respond(ids.map((id) => ({ code: 200, body: { id, title: `Fone ${id} Bluetooth Sem Fio`, price: id === "MLBZ1" ? competitorPrice : 89.9, seller_id: 77, status: "active", shipping: { free_shipping: true } } })));
+        }
+        return respond({ message: "inesperado " + u }, 500);
+      }),
+    );
+    try {
+      const r1 = await spySync.syncSpy(accA);
+      expect(r1).toMatchObject({ categories: 1, refreshed: 1, catalog: 1, competitors: 1, errors: [] });
+      // Dado público recente não é buscado de novo
+      expect((await spySync.syncSpy(accA)).refreshed).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect((await spyData.trendsFor(["MLB1051"])).map((t) => t.keyword)).toEqual(["fone bluetooth", "fone sem fio"]);
+    expect(await spyData.bestSellersFor(["MLB1051"])).toMatchObject([{ id: "MLBX1", price: 89.9, title: "Fone MLBX1 Bluetooth Sem Fio" }]);
+    expect(await spyData.catalogFor(A, accA)).toMatchObject([{ item_id: "MLBA1", status: "competing", price_to_win: 95 }]);
+    expect(await spyData.catalogFor(B, accA)).toEqual([]);
+    expect(await spyData.competitorsFor(A, accA)).toMatchObject([{ item_id: "MLBZ1", note: "Loja Z", price: 100 }]);
+    expect(await spyData.competitorsFor(B, accA)).toEqual([]);
+    expect(await spyData.ownItem(B, accA, "MLBA1")).toBeNull();
+
+    // Queda de preço do concorrente gera alerta (comparando com o dia anterior)
+    await db.query("update competitor_snapshots set day = day - 1 where item_id = 'MLBZ1'");
+    competitorPrice = 90;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = String(url);
+        if (u.includes("/items?ids=")) return new Response(JSON.stringify([{ code: 200, body: { id: "MLBZ1", title: "Fone Z", price: competitorPrice, status: "active" } }]));
+        if (u.includes("price_to_win")) return new Response(JSON.stringify({ status: "competing" }));
+        return new Response("[]");
+      }),
+    );
+    try {
+      await spySync.syncSpy(accA);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect((await data.recentEvents(accA)).some((e) => e.title === "Concorrente baixou o preço 10%")).toBe(true);
+
+    await spyData.removeCompetitor(B, accA, "MLBZ1"); // não é dele: não remove
+    expect(await spyData.competitorsFor(A, accA)).toHaveLength(1);
+    await spyData.removeCompetitor(A, accA, "MLBZ1");
+    expect(await spyData.competitorsFor(A, accA)).toHaveLength(0);
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {

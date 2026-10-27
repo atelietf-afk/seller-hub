@@ -6,6 +6,12 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import * as data from "@/lib/data/accounts";
+import * as spyData from "@/lib/data/spy";
+import { suggestTitles } from "@/lib/ai/titles";
+import { competitorTermGaps, parseListingId, trendGaps } from "@/lib/analytics/keywords";
+import { MlSpyApi, type Listing } from "@/lib/ml/spy-api";
+import { saveCompetitorSnapshot } from "@/lib/ml/spy-sync";
+import { apiFor } from "@/lib/ml/tokens";
 import { parseMoney } from "@/lib/format";
 import { syncAccount } from "@/lib/ml/sync";
 import { currentAccount, currentUser } from "@/lib/session";
@@ -115,4 +121,65 @@ export async function disconnectAccount(formData: FormData) {
   const user = await currentUser();
   await data.unlinkAccount(user.id, String(formData.get("accountId")));
   revalidatePath("/", "layout");
+}
+
+// Espião ------------------------------------------------------------------
+
+const MAX_COMPETITORS = 50;
+
+export async function addCompetitor(formData: FormData) {
+  const account = await ownAccount();
+  const back = (erro: string) => redirect(`/espiao?aba=concorrentes&erro=${erro}`);
+  const parsed = parseListingId(String(formData.get("link") ?? ""), account.site_id);
+  if (!parsed) back("link");
+  if ((await spyData.competitorCount(account.id)) >= MAX_COMPETITORS) back("limite");
+
+  let listing: Listing | null = null;
+  try {
+    const spy = new MlSpyApi(apiFor(account.id));
+    listing = parsed!.kind === "item" ? ((await spy.listings([parsed!.id]))[0] ?? null) : await spy.product(parsed!.id);
+  } catch (err) {
+    console.error("Concorrente não encontrado", parsed, err);
+  }
+  if (!listing) back("nao-encontrado");
+  if (listing!.sellerId === Number(account.ml_user_id)) back("proprio");
+
+  const note = String(formData.get("note") ?? "").trim().slice(0, 80) || null;
+  if (!(await spyData.addCompetitor(account.owner_id, account.id, parsed!.id, parsed!.kind, note))) back("nao-encontrado");
+  await saveCompetitorSnapshot(account.id, parsed!.id, listing!, new Date().toISOString().slice(0, 10));
+  revalidatePath("/espiao");
+  redirect("/espiao?aba=concorrentes");
+}
+
+export async function removeCompetitor(formData: FormData) {
+  const { user, account } = await currentAccount();
+  if (!account) return;
+  await spyData.removeCompetitor(user.id, account.id, String(formData.get("itemId")));
+  revalidatePath("/espiao");
+}
+
+export async function suggestItemTitles(formData: FormData) {
+  const { user, account } = await currentAccount();
+  if (!account) redirect("/configuracoes");
+  const item = await spyData.ownItem(user.id, account.id, String(formData.get("itemId")));
+  if (!item) redirect("/espiao");
+
+  let ok = false;
+  try {
+    const cats = item.category_id ? [item.category_id] : [];
+    const [trends, best, names] = await Promise.all([spyData.trendsFor(cats), spyData.bestSellersFor(cats), spyData.categoryNames(cats)]);
+    const content = await suggestTitles({
+      title: item.title,
+      category: names[0]?.name ?? null,
+      price: item.price,
+      trendingSearches: trendGaps(item.title, trends, 10).map((t) => t.keyword),
+      bestSellerTerms: competitorTermGaps(item.title, best.map((b) => b.title ?? "").filter(Boolean)).map((t) => t.term),
+    });
+    await spyData.saveTitleSuggestion(account.id, item.id, content);
+    ok = true;
+  } catch (err) {
+    console.error("Sugestão de títulos falhou", item.id, err);
+  }
+  revalidatePath("/espiao");
+  redirect(`/espiao?aba=palavras${ok ? "" : "&erro=ia"}#${item.id}`);
 }
