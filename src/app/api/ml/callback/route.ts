@@ -5,7 +5,8 @@ import { linkAccount } from "@/lib/data/accounts";
 import { query } from "@/lib/db";
 import { env } from "@/lib/env";
 import { MlApi } from "@/lib/ml/api";
-import { exchangeCode } from "@/lib/ml/oauth";
+import { callbackProblem, exchangeCode, hasRefreshToken } from "@/lib/ml/oauth";
+import type { MlTokenResponse } from "@/lib/ml/types";
 import { syncAccount } from "@/lib/ml/sync";
 import { saveTokens } from "@/lib/ml/tokens";
 
@@ -22,15 +23,24 @@ export async function GET(request: Request) {
   const jar = await cookies();
   const expected = jar.get("ml_oauth_state")?.value;
   jar.delete({ name: "ml_oauth_state", path: "/api/ml/callback" });
-  const code = url.searchParams.get("code");
-  if (!code || !expected || url.searchParams.get("state") !== expected) return back("estado-invalido");
+  const problem = callbackProblem(url.searchParams, expected);
+  if (problem) return back(problem);
 
-  const tokens = await exchangeCode({
-    clientId: env("ML_CLIENT_ID"),
-    clientSecret: env("ML_CLIENT_SECRET"),
-    redirectUri: env("ML_REDIRECT_URI"),
-    code,
-  });
+  let tokens: MlTokenResponse;
+  try {
+    tokens = await exchangeCode({
+      clientId: env("ML_CLIENT_ID"),
+      clientSecret: env("ML_CLIENT_SECRET"),
+      redirectUri: env("ML_REDIRECT_URI"),
+      code: url.searchParams.get("code")!,
+    });
+  } catch (err) {
+    // Código vencido ou já usado (ex.: a página foi recarregada), ou credenciais erradas.
+    console.error("Troca do código do ML falhou", err);
+    return back("codigo-invalido");
+  }
+  // Valida antes de cadastrar a conta, para não deixar conta sem tokens.
+  if (!hasRefreshToken(tokens)) return back("sem-acesso-offline");
   const me = await new MlApi(async () => tokens.access_token).me();
 
   const account = await linkAccount(session.user.id, {

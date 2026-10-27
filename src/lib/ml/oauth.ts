@@ -52,3 +52,17 @@ export function refreshTokens(opts: { clientId: string; clientSecret: string; re
     fetchFn,
   );
 }
+
+export type ConnectProblem = "autorizacao-negada" | "estado-invalido" | "sem-acesso-offline";
+
+/** Confere a volta da autorização antes de trocar o código por tokens. */
+export function callbackProblem(params: URLSearchParams, expectedState: string | undefined): ConnectProblem | null {
+  if (params.get("error")) return "autorizacao-negada";
+  if (!params.get("code") || !expectedState || params.get("state") !== expectedState) return "estado-invalido";
+  return null;
+}
+
+/** Sem refresh_token o acesso expira em 6 horas: o app no ML precisa do escopo offline_access. */
+export function hasRefreshToken(t: MlTokenResponse): t is MlTokenResponse & { refresh_token: string } {
+  return typeof t.refresh_token === "string" && t.refresh_token.length > 0;
+}

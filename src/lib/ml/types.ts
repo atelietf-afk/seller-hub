@@ -2,7 +2,7 @@
 
 export interface MlTokenResponse {
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string; // só vem se o app no ML tiver o escopo offline_access
   expires_in: number; // segundos (hoje, 6 horas)
   user_id: number;
   scope?: string;

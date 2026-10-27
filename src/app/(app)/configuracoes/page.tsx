@@ -7,6 +7,10 @@ import { currentAccount } from "@/lib/session";
 const ML_MSG: Record<string, string> = {
   "estado-invalido": "A conexão expirou ou foi interrompida. Tente de novo.",
   "conta-ja-vinculada": "Essa conta do Mercado Livre já está ligada a outro usuário do Seller Hub.",
+  "autorizacao-negada": "A autorização foi cancelada no Mercado Livre. Clique em Conectar para tentar de novo.",
+  "codigo-invalido": "O link de autorização expirou ou já foi usado. Clique em Conectar para começar de novo.",
+  "sem-acesso-offline":
+    "O app no Mercado Livre está sem a permissão de acesso offline (offline_access). Ative-a no DevCenter e conecte de novo.",
 };
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ ml?: string }> }) {

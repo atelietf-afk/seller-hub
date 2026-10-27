@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MlApi, MlApiError } from "@/lib/ml/api";
-import { authorizationUrl, refreshTokens } from "@/lib/ml/oauth";
+import { authorizationUrl, callbackProblem, hasRefreshToken, refreshTokens } from "@/lib/ml/oauth";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
@@ -61,5 +61,30 @@ describe("oauth", () => {
     const body = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
     expect(body.get("grant_type")).toBe("refresh_token");
     expect(body.get("refresh_token")).toBe("r1");
+  });
+});
+
+describe("volta da autorização", () => {
+  const q = (s: string) => new URLSearchParams(s);
+
+  it("aceita código com o state certo", () => {
+    expect(callbackProblem(q("code=TG-1&state=abc"), "abc")).toBeNull();
+  });
+
+  it("recusa state diferente, ausente ou sem cookie", () => {
+    expect(callbackProblem(q("code=TG-1&state=xyz"), "abc")).toBe("estado-invalido");
+    expect(callbackProblem(q("code=TG-1"), "abc")).toBe("estado-invalido");
+    expect(callbackProblem(q("code=TG-1&state=abc"), undefined)).toBe("estado-invalido");
+  });
+
+  it("identifica autorização cancelada no ML", () => {
+    expect(callbackProblem(q("error=access_denied&state=abc"), "abc")).toBe("autorizacao-negada");
+  });
+
+  it("exige refresh_token (escopo offline_access)", () => {
+    const base = { access_token: "a", expires_in: 21600, user_id: 1 };
+    expect(hasRefreshToken(base)).toBe(false);
+    expect(hasRefreshToken({ ...base, refresh_token: "" })).toBe(false);
+    expect(hasRefreshToken({ ...base, refresh_token: "TG-r" })).toBe(true);
   });
 });

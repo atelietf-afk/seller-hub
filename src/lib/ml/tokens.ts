@@ -3,7 +3,7 @@ import { decrypt, encrypt } from "@/lib/crypto";
 import { one, pool, query } from "@/lib/db";
 import { env } from "@/lib/env";
 import { MlApi } from "./api";
-import { refreshTokens } from "./oauth";
+import { hasRefreshToken, refreshTokens } from "./oauth";
 import type { MlTokenResponse } from "./types";
 
 // Renova com 5 minutos de folga antes de expirar.
@@ -20,6 +20,7 @@ const isFresh = (row: TokenRow) => new Date(row.expires_at).getTime() - SKEW_MS 
 const expiry = (t: MlTokenResponse) => new Date(Date.now() + t.expires_in * 1000).toISOString();
 
 export async function saveTokens(accountId: string, t: MlTokenResponse) {
+  if (!hasRefreshToken(t)) throw new Error("O Mercado Livre não enviou refresh_token (falta o escopo offline_access)");
   await query(
     `insert into ml_tokens (account_id, access_token, refresh_token, expires_at) values ($1, $2, $3, $4)
      on conflict (account_id) do update set access_token = excluded.access_token, refresh_token = excluded.refresh_token,
@@ -56,7 +57,8 @@ export async function validAccessToken(accountId: string): Promise<string> {
     });
     await client.query(
       "update ml_tokens set access_token = $2, refresh_token = $3, expires_at = $4, updated_at = now() where account_id = $1",
-      [accountId, encrypt(fresh.access_token), encrypt(fresh.refresh_token), expiry(fresh)],
+      // Se o ML não devolver um refresh_token novo, o atual continua valendo.
+      [accountId, encrypt(fresh.access_token), hasRefreshToken(fresh) ? encrypt(fresh.refresh_token) : current.refresh_token, expiry(fresh)],
     );
     await client.query("commit");
     return fresh.access_token;
