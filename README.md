@@ -11,6 +11,7 @@ Painel para vendedores de marketplaces. Começa pelo **Mercado Livre**. Shopee, 
 | **Lucro real** | Desconta comissão do ML, frete pago pelo vendedor, imposto e custo do produto, por pedido e por anúncio. |
 | **Funil por anúncio** | Visitas → vendas → conversão, comparadas com a mediana da sua loja. Diagnostica: pouca visita, conversão baixa, "joia escondida" (converte bem, pouca visita), ruptura de estoque, margem baixa ou negativa. |
 | **Alertas** | Queda de visitas semana contra semana, reputação piorando, anúncio ativo sem estoque. |
+| **Publicidade (Product Ads)** | Campanhas e produtos anunciados dos últimos 30 dias: investimento, vendas, ACOS, ROAS, TACOS, CTR e CPC. Cruza com o lucro real: mostra o **lucro após anúncios** e o **ACOS de equilíbrio** de cada produto, e aponta onde o anúncio dá prejuízo, onde vale escalar e onde gasta sem vender. |
 | **Resumo diário com IA** | O Claude lê os números da semana e explica o que mudou e o que fazer, em linguagem simples. |
 
 ## Arquitetura
@@ -38,6 +39,8 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
    - *Redirect URI*: `https://SEU-DOMINIO/api/ml/callback`
    - *URL de notificações*: `https://SEU-DOMINIO/api/ml/notifications`
    - *Tópicos*: `orders_v2`, `questions`, `items`
+   - *Fluxos OAuth*: Authorization Code e **Refresh Token** (sem ele o acesso expira em 6 horas)
+   - *Permissões*: inclua **Publicidade de um produto** (leitura) para a tela de Publicidade
    - *Escopos*: leitura, escrita e acesso offline
 3. **Vercel:** importe o repositório e configure as variáveis do `.env.example`
    (`BETTER_AUTH_URL` = a URL do app). Gere os segredos com `openssl rand -base64 32` e `openssl rand -hex 32` (CRON_SECRET).
@@ -67,7 +70,6 @@ O ML só aceita redirect e webhooks em HTTPS público. Para testar localmente, u
 
 1. **Espião e palavras-chave (ML):** mais vendidos da categoria (`/highlights`), concorrentes monitorados (preço, estoque, vendas), sugestões de título e nota do anúncio.
 2. **Relatórios semanal e mensal:** PDF e envio por e-mail/WhatsApp.
-3. **Product Ads (ML):** ROAS/ACOS e lucro depois do anúncio.
 4. **Respostas com IA** para perguntas, **estoque unificado** e **precificação automática**.
 5. **Shopee, Amazon e TikTok Shop:** um conector por marketplace, convertendo tudo para as mesmas tabelas.
 6. **Para vender como serviço:** equipes (organizações), planos e cobrança, confirmação de e-mail e recuperação de senha, onboarding guiado.

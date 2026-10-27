@@ -1,5 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
+import { adsTotals, type AdsMetricsInput } from "@/lib/analytics/ads";
 import type { AccountReport } from "@/lib/report";
 
 export interface DailySummary {
@@ -14,6 +15,7 @@ const SYSTEM = `Você é o analista de uma loja no Mercado Livre e escreve para 
 Explique o que aconteceu no período com base apenas nos números recebidos e diga o que fazer agora.
 Seja direto e concreto: cite produtos, valores e percentuais. Não invente dados que não estão no JSON.
 Se o custo dos produtos não foi informado, o lucro está superestimado: diga isso quando for relevante.
+Quando houver "ads" (publicidade), considere o lucro depois dos anúncios (profitAfterAds) e se o ACOS cabe na margem.
 "headline": uma frase com o resultado principal e a causa mais provável.
 "highlights": de 2 a 4 fatos que explicam o período.
 "actions": de 1 a 3 ações em ordem de impacto, cada uma com o motivo; use o itemId do anúncio quando a ação for sobre um produto.`;
@@ -42,7 +44,8 @@ const SCHEMA = {
 } as const;
 
 /** Só o que o modelo precisa: totais, comparação e os anúncios que mais importam. */
-export function summaryInput(r: AccountReport) {
+/** ads: métricas de publicidade do mesmo período (null se a conta não anuncia). */
+export function summaryInput(r: AccountReport, ads: AdsMetricsInput | null = null) {
   const pct = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 1000) / 10 : null);
   const relevant = r.funnel
     .filter((f) => f.revenue > 0 || f.diagnoses.some((d) => d.code !== "healthy"))
@@ -75,11 +78,25 @@ export function summaryInput(r: AccountReport) {
     conversionPct: Math.round(r.totals.conversion * 1000) / 10,
     unansweredQuestions: r.unansweredQuestions,
     activeItemsWithoutCost: r.missingCosts,
+    ads: ads && ads.cost > 0 ? adsSummary(ads, r) : null,
     items: relevant,
   };
 }
 
-export async function generateSummary(report: AccountReport): Promise<DailySummary> {
+function adsSummary(ads: AdsMetricsInput, r: AccountReport) {
+  const t = adsTotals([ads]);
+  const round = (n: number | null, k = 1000) => (n === null ? null : Math.round(n * k) / (k / 100));
+  return {
+    spend: t.cost,
+    revenueFromAds: t.revenue,
+    acosPct: round(t.acos),
+    roas: t.roas === null ? null : Math.round(t.roas * 10) / 10,
+    tacosPct: r.totals.revenue > 0 ? round(t.cost / r.totals.revenue) : null,
+    profitAfterAds: Math.round((r.totals.profit - t.cost) * 100) / 100,
+  };
+}
+
+export async function generateSummary(report: AccountReport, ads: AdsMetricsInput | null = null): Promise<DailySummary> {
   const response = await client.beta.messages.create({
     model: "claude-opus-5-5",
     max_tokens: 16000,
@@ -87,7 +104,7 @@ export async function generateSummary(report: AccountReport): Promise<DailySumma
     fallbacks: "default",
     output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
     system: SYSTEM,
-    messages: [{ role: "user", content: JSON.stringify(summaryInput(report)) }],
+    messages: [{ role: "user", content: JSON.stringify(summaryInput(report, ads)) }],
   });
 
   if (response.stop_reason === "refusal") throw new Error("O modelo recusou gerar o resumo");

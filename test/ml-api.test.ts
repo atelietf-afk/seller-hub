@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { MlAdsApi } from "@/lib/ml/ads-api";
 import { MlApi, MlApiError } from "@/lib/ml/api";
 import { authorizationUrl, callbackProblem, hasRefreshToken, refreshTokens } from "@/lib/ml/oauth";
 
@@ -86,5 +87,43 @@ describe("volta da autorização", () => {
     expect(hasRefreshToken(base)).toBe(false);
     expect(hasRefreshToken({ ...base, refresh_token: "" })).toBe(false);
     expect(hasRefreshToken({ ...base, refresh_token: "TG-r" })).toBe(true);
+  });
+});
+
+describe("MlAdsApi", () => {
+  it("usa o caminho antigo de campanhas quando o novo não existe", async () => {
+    const fetchFn = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("/marketplace/advertising/")) return new Response("not found", { status: 404 });
+      return json({ results: [{ id: 5, name: "Campanha A", status: "active", acos_target: 12, metrics: { cost: 10, total_amount: 100 } }] });
+    });
+    const ads = new MlAdsApi(new MlApi(async () => "t", fetchFn as typeof fetch));
+    const [c] = await ads.campaigns({ advertiserId: 9, siteId: "MLB" }, new Date("2026-10-01"), new Date("2026-10-30"));
+    expect(c).toMatchObject({ id: 5, name: "Campanha A", cost: 10, revenue: 100 });
+    expect(c.acosTarget).toBeCloseTo(0.12);
+    const calls = fetchFn.mock.calls.map((c) => String(c[0]));
+    expect(calls[0]).toContain("/marketplace/advertising/MLB/advertisers/9/product_ads/campaigns/search?");
+    expect(calls[1]).toContain("/advertising/advertisers/9/product_ads/campaigns?");
+    expect(calls[1]).toContain("date_from=2026-10-01");
+  });
+
+  it("devolve null por anúncio quando a API não oferece esse detalhe", async () => {
+    const fetchFn = vi.fn(async () => new Response("gone", { status: 404 }));
+    const ads = new MlAdsApi(new MlApi(async () => "t", fetchFn as typeof fetch));
+    expect(await ads.items({ advertiserId: 9, siteId: "MLB" }, new Date(), new Date())).toBeNull();
+  });
+
+  it("propaga erros que não são de caminho (ex.: 401)", async () => {
+    const fetchFn = vi.fn(async () => new Response("unauthorized", { status: 401 }));
+    const ads = new MlAdsApi(new MlApi(async () => "t", fetchFn as typeof fetch));
+    await expect(ads.campaigns({ advertiserId: 9, siteId: "MLB" }, new Date(), new Date())).rejects.toBeInstanceOf(MlApiError);
+  });
+
+  it("identifica quem não usa Product Ads", async () => {
+    const fetchFn = vi.fn(async () => json({ advertisers: [] }));
+    const ads = new MlAdsApi(new MlApi(async () => "t", fetchFn as typeof fetch));
+    expect(await ads.advertiser()).toBeNull();
+    const init = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect((init.headers as Record<string, string>)["Api-Version"]).toBe("1");
   });
 });

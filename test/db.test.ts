@@ -1,7 +1,7 @@
 // Testes contra um Postgres de verdade. Rodam só com TEST_DATABASE_URL definido
 // (o banco é apagado e recriado a cada execução — nunca aponte para produção).
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -13,6 +13,8 @@ describe.skipIf(!url)("banco de dados", () => {
   let tokens: typeof import("@/lib/ml/tokens");
   let report: typeof import("@/lib/report");
   let auth: typeof import("@/lib/auth");
+  let adsSync: typeof import("@/lib/ml/ads-sync");
+  let adsReport: typeof import("@/lib/ads-report");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -30,9 +32,12 @@ describe.skipIf(!url)("banco de dados", () => {
     store = await import("@/lib/ml/store");
     tokens = await import("@/lib/ml/tokens");
     report = await import("@/lib/report");
+    adsSync = await import("@/lib/ml/ads-sync");
+    adsReport = await import("@/lib/ads-report");
 
     await db.query("drop schema public cascade; create schema public;");
-    await db.query(await readFile(new URL("../db/migrations/0001_init.sql", import.meta.url), "utf8"));
+    const dir = new URL("../db/migrations/", import.meta.url);
+    for (const f of (await readdir(dir)).filter((f) => f.endsWith(".sql")).sort()) await db.query(await readFile(new URL(f, dir), "utf8"));
     auth = await import("@/lib/auth"); // o Better Auth confere as tabelas ao iniciar
     await db.query(`insert into "user" (id, name, email, "emailVerified") values ($1, 'A', 'a@x.com', true), ($2, 'B', 'b@x.com', true)`, [A, B]);
     accA = (await data.linkAccount(A, { id: 1, nickname: "loja_a", site_id: "MLB", reputation: { level_id: "5_green" } }))!.id;
@@ -133,6 +138,55 @@ describe.skipIf(!url)("banco de dados", () => {
     }
     const [row] = await db.query<{ access_token: string }>("select access_token from ml_tokens where account_id = $1", [accA]);
     expect(row.access_token).not.toContain("new"); // guardado criptografado
+  });
+
+  it("sincroniza a publicidade e cruza com o lucro, sem vazar para outro usuário", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = String(url);
+        if (u.includes("/advertising/advertisers?product_id=PADS")) return respond({ advertisers: [{ advertiser_id: 9, site_id: "MLB" }] });
+        if (u.includes("/product_ads/campaigns")) {
+          if (u.includes("aggregation_type=DAILY")) return respond({ results: [{ campaign_id: 5, date: today, cost: 20, total_amount: 200 }] });
+          return respond({ results: [{ id: 5, name: "Fones", status: "active", budget: 30, acos_target: 10, metrics: { clicks: 40, prints: 4000, cost: 20, total_amount: 200, units_quantity: 2 } }] });
+        }
+        if (u.includes("/product_ads/ads/search"))
+          return respond({ results: [{ item_id: "MLBA1", campaign_id: 5, metrics: { clicks: 40, prints: 4000, cost: 20, total_amount: 200, units_quantity: 2 } }] });
+        return respond({ message: "inesperado " + u }, 500);
+      }),
+    );
+    try {
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, dailyRows: 1, items: 1 });
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok" }); // rodar de novo não duplica
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const r = (await adsReport.buildAdsReport(A, accA))!;
+    expect(r.totals).toMatchObject({ cost: 20, revenue: 200, clicks: 40 });
+    expect(r.totals.acos).toBeCloseTo(0.1);
+    expect(r.profitAfterAds).toBe(r.profitBeforeAds - 20);
+    expect(r.campaigns).toHaveLength(1);
+    expect(r.daily.find((d) => d.day === today)).toMatchObject({ cost: 20, revenue: 200 });
+    const item = r.items!.find((i) => i.item_id === "MLBA1")!;
+    expect(item.title).toBe("MLBA1");
+    expect(item.breakEvenAcos).toBeCloseTo(0.28); // margem do MLBA1: 56 / 200
+
+    expect(await adsReport.buildAdsReport(B, accA)).toBeNull();
+  });
+
+  it("marca erro da publicidade sem derrubar nada", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("forbidden", { status: 403 })));
+    try {
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "erro" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const [row] = await db.query<{ ads_status: string; ads_error: string }>("select ads_status, ads_error from ml_accounts where id = $1", [accA]);
+    expect(row.ads_status).toBe("erro");
+    expect(row.ads_error).toContain("403");
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {
