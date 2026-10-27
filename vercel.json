@@ -1,6 +1,15 @@
 {
+  "regions": [
+    "iad1"
+  ],
   "crons": [
-    { "path": "/api/cron/summary", "schedule": "0 10 * * *" },
-    { "path": "/api/cron/sync", "schedule": "0 9 * * *" }
+    {
+      "path": "/api/cron/summary",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/sync",
+      "schedule": "0 9 * * *"
+    }
   ]
 }

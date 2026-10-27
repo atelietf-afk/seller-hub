@@ -2,6 +2,7 @@ import { signIn, signUp } from "../actions";
 
 const ERRORS: Record<string, string> = {
   credenciais: "E-mail ou senha incorretos.",
+  indisponivel: "Não conseguimos falar com o servidor agora. Tente de novo em alguns segundos.",
 };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ erro?: string }> }) {

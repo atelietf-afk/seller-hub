@@ -8,5 +8,8 @@ export const auth = betterAuth({
   database: pool,
   emailAndPassword: { enabled: true, minPasswordLength: 8 },
   session: { expiresIn: 60 * 60 * 24 * 30 },
+  // As tabelas são criadas pelas migrações no deploy (db/migrations). Sem isto, cada
+  // início a frio consulta o esquema antes do login e falha quando o Neon está acordando.
+  advanced: { database: { validateSchema: false } },
   plugins: [nextCookies()],
 });

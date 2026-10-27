@@ -23,7 +23,8 @@ export async function signIn(formData: FormData) {
     await auth.api.signInEmail({ body: credentials(formData), headers: await headers() });
   } catch (err) {
     if (err instanceof APIError) redirect("/login?erro=credenciais");
-    throw err;
+    console.error("Falha no login", err);
+    redirect("/login?erro=indisponivel");
   }
   redirect("/dashboard");
 }
@@ -34,7 +35,8 @@ export async function signUp(formData: FormData) {
     await auth.api.signUpEmail({ body: { email, password, name: email.split("@")[0] }, headers: await headers() });
   } catch (err) {
     if (err instanceof APIError) redirect(`/login?erro=${encodeURIComponent(err.message)}`);
-    throw err;
+    console.error("Falha no cadastro", err);
+    redirect("/login?erro=indisponivel");
   }
   redirect("/dashboard");
 }
