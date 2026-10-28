@@ -76,6 +76,13 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
    `SHOPEE_PARTNER_ID`, `SHOPEE_PARTNER_KEY` e `SHOPEE_API_URL` na Vercel e, no app da Shopee, o domínio de redirecionamento
    `https://SEU-DOMINIO`. Em **Configurações → Conectar Shopee** o vendedor autoriza a loja (a autorização vale até 365 dias).
 
+7. **Amazon (opcional):** na Central do Vendedor, em *Apps e serviços → Desenvolver apps*, crie o perfil de desenvolvedor e um
+   app da SP-API com os papéis de pedidos, finanças e relatórios/estoque. No app, cadastre a URI de login e a de redirecionamento
+   `https://SEU-DOMINIO/api/amazon/callback`. Configure `AMAZON_APP_ID`, `AMAZON_LWA_CLIENT_ID`, `AMAZON_LWA_CLIENT_SECRET` e
+   `AMAZON_APP_DRAFT=true` (enquanto o app não for publicado) na Vercel. Os anúncios vêm de um relatório que a Amazon gera
+   aos poucos: se não ficar pronto em 45 segundos, entra na sincronização seguinte. As taxas vêm do extrato de cada pedido,
+   que só aparece depois do envio.
+
 > **Histórico de pedidos:** a primeira sincronização traz 30 dias; depois, cada sincronização recua mais 30 dias (com limite de tempo)
 > até completar 120 dias, o suficiente para o relatório mensal e sua comparação. O relatório avisa quando o histórico ainda está incompleto.
 

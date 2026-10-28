@@ -5,11 +5,13 @@ import { CopyButton } from "@/components/CopyButton";
 import { can, ROLE_HINT, ROLE_LABEL, type MemberRole } from "@/lib/analytics/team";
 import { pendingInvites, teamOf } from "@/lib/data/team";
 import { env } from "@/lib/env";
+import { CONNECT_PATH, MARKETPLACE_LABEL } from "@/lib/marketplaces";
 import { dateOnly } from "@/lib/format";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatWhatsappPhone } from "@/lib/analytics/whatsapp";
 import { settingsOf } from "@/lib/data/accounts";
 import { currentAccount, INVITE_COOKIE } from "@/lib/session";
+import { amazonConfigured } from "@/lib/amazon/config";
 import { shopeeConfigured } from "@/lib/shopee/config";
 import { whatsappConfigured } from "@/lib/whatsapp";
 
@@ -21,6 +23,7 @@ const ML_MSG: Record<string, string> = {
   "contato-na-loja":
     "As informações da loja não foram salvas: tire telefone, e-mail, links ou redes sociais (o Mercado Livre proíbe nas respostas).",
   "whatsapp-invalido": "As configurações não foram salvas: o número de WhatsApp não parece válido. Use DDD + número, ex.: (11) 98765-4321.",
+  "amazon-desligada": "A conexão com a Amazon ainda não foi ativada no servidor (faltam as credenciais do app na Central do Vendedor).",
   "shopee-desligada": "A conexão com a Shopee ainda não foi ativada no servidor (faltam as credenciais do app na Shopee Open Platform).",
   "sem-acesso-offline":
     "O app no Mercado Livre está sem a permissão de acesso offline (offline_access). Ative-a no DevCenter e conecte de novo.",
@@ -66,12 +69,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <ul className="mt-3 divide-y divide-line text-sm">
           {ownAccounts.map((a) => (
             <li key={a.id} className="flex items-center gap-3 py-2">
-              <span className="rounded bg-bg px-1.5 py-0.5 text-xs">{a.marketplace === "shopee" ? "Shopee" : "Mercado Livre"}</span>
+              <span className="rounded bg-bg px-1.5 py-0.5 text-xs">{MARKETPLACE_LABEL[a.marketplace]}</span>
               <span className="font-medium">{a.nickname}</span>
-              <span className="text-muted">ID {a.ml_user_id}</span>
+              <span className="text-muted">ID {a.external_id ?? a.ml_user_id}</span>
               {!a.connected && (
                 <Link
-                  href={a.marketplace === "shopee" ? "/api/shopee/connect" : "/api/ml/connect"}
+                  href={CONNECT_PATH[a.marketplace]}
                   className="text-xs font-medium text-critical underline"
                 >
                   Conexão incompleta: reconectar
@@ -94,6 +97,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             </Link>
           ) : (
             <span className="text-xs text-muted">Shopee: aguardando a aprovação do app na Shopee Open Platform.</span>
+          )}
+          {amazonConfigured() ? (
+            <Link href="/api/amazon/connect" className="inline-block rounded-md border border-line px-3 py-1.5 text-sm font-medium">
+              Conectar Amazon
+            </Link>
+          ) : (
+            <span className="text-xs text-muted">Amazon: aguardando o cadastro do app na Central do Vendedor.</span>
           )}
         </div>
       </section>

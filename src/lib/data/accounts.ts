@@ -10,7 +10,8 @@ import type { EventRow, MlAccount, SellerSettings } from "./types";
 export function accountsOfOwners(ownerIds: string[]) {
   return query<MlAccount>(
     `select a.*, (exists (select 1 from ml_tokens t where t.account_id = a.id)
-                 or exists (select 1 from shopee_tokens s where s.account_id = a.id)) as connected
+                 or exists (select 1 from shopee_tokens s where s.account_id = a.id)
+                 or exists (select 1 from amazon_tokens z where z.account_id = a.id)) as connected
      from ml_accounts a where a.owner_id = any($1::text[]) order by a.created_at`,
     [ownerIds],
   );
@@ -19,7 +20,8 @@ export function accountsOfOwners(ownerIds: string[]) {
 export function accountsOf(ownerId: string) {
   return query<MlAccount>(
     `select a.*, (exists (select 1 from ml_tokens t where t.account_id = a.id)
-                 or exists (select 1 from shopee_tokens s where s.account_id = a.id)) as connected
+                 or exists (select 1 from shopee_tokens s where s.account_id = a.id)
+                 or exists (select 1 from amazon_tokens z where z.account_id = a.id)) as connected
      from ml_accounts a where a.owner_id = $1 order by a.created_at`,
     [ownerId],
   );
@@ -125,6 +127,18 @@ export async function saveSummary(accountId: string, day: string, content: Daily
 }
 
 /** Cadastra ou atualiza a loja da Shopee. Devolve null se ela já pertence a outro usuário. */
+/** Conta da Amazon pelo ID do vendedor (selling_partner_id). Não toma conta de outro dono. */
+export function linkAmazonSeller(ownerId: string, seller: { id: string; name: string | null }) {
+  return one<MlAccount>(
+    `insert into ml_accounts (owner_id, marketplace, external_id, nickname, site_id)
+     values ($1, 'amazon', $2, $3, 'BR')
+     on conflict (marketplace, external_id) do update set nickname = coalesce(excluded.nickname, ml_accounts.nickname)
+       where ml_accounts.owner_id = excluded.owner_id
+     returning *`,
+    [ownerId, seller.id, seller.name],
+  );
+}
+
 export function linkShopeeShop(ownerId: string, shop: { id: number; name: string | null }) {
   return one<MlAccount>(
     `insert into ml_accounts (owner_id, marketplace, ml_user_id, nickname, site_id)

@@ -28,6 +28,8 @@ describe.skipIf(!url)("banco de dados", () => {
   let adsData: typeof import("@/lib/data/ads");
   let shopeeSync: typeof import("@/lib/shopee/sync");
   let shopeeTokens: typeof import("@/lib/shopee/tokens");
+  let amazonSync: typeof import("@/lib/amazon/sync");
+  let amazonTokens: typeof import("@/lib/amazon/tokens");
   let team: typeof import("@/lib/data/team");
   const A = "user-a";
   const B = "user-b";
@@ -61,6 +63,8 @@ describe.skipIf(!url)("banco de dados", () => {
     adsData = await import("@/lib/data/ads");
     shopeeSync = await import("@/lib/shopee/sync");
     shopeeTokens = await import("@/lib/shopee/tokens");
+    amazonSync = await import("@/lib/amazon/sync");
+    amazonTokens = await import("@/lib/amazon/tokens");
     team = await import("@/lib/data/team");
 
     await db.query("drop schema public cascade; create schema public;");
@@ -751,6 +755,86 @@ describe.skipIf(!url)("banco de dados", () => {
     const r = await report.buildReport(shop.id, A, 7);
     expect(r.totals).toMatchObject({ revenue: 80, orders: 1, fees: 16 });
     await db.query("delete from ml_accounts where id = $1", [shop.id]);
+  });
+
+  it("sincroniza a conta da Amazon: relatório de anúncios, pedidos e taxas do extrato", async () => {
+    process.env.AMAZON_APP_ID = "amzn1.sp.solution.x";
+    process.env.AMAZON_LWA_CLIENT_ID = "cli";
+    process.env.AMAZON_LWA_CLIENT_SECRET = "seg";
+    const acc = (await data.linkAmazonSeller(A, { id: "A1SELLER", name: null }))!;
+    expect(acc).toMatchObject({ marketplace: "amazon", external_id: "A1SELLER", ml_user_id: null });
+    expect(await data.linkAmazonSeller(B, { id: "A1SELLER", name: "invasor" })).toBeNull(); // conta de outro usuário
+    expect((await data.accountsOf(A)).find((a) => a.id === acc.id)?.connected).toBe(false);
+    await amazonTokens.saveAmazonTokens(acc.id, { access_token: "tok", refresh_token: "ref", expires_in: 3600 });
+    expect((await data.accountsOf(A)).find((a) => a.id === acc.id)?.connected).toBe(true);
+    const stored = await db.one<{ access_token: string; refresh_token: string }>("select access_token, refresh_token from amazon_tokens where account_id = $1", [acc.id]);
+    expect(stored?.refresh_token).not.toBe("ref"); // criptografado
+
+    const created = new Date(Date.now() - 3600_000).toISOString();
+    const paths: string[] = [];
+    const tsv = "item-name\tseller-sku\tprice\tquantity\tasin1\tfulfillment-channel\tstatus\nCaneca\tCAN-1\t49.90\t7\tB0A\tDEFAULT\tActive\n";
+    const order = (orderId: string, status: string, sku: string, qty: number, amount: string) => ({
+      orderId,
+      createdTime: created,
+      fulfillment: { fulfillmentStatus: status },
+      orderItems: [{ product: { asin: "B0A", sellerSku: sku }, quantityOrdered: qty, proceeds: { breakdowns: [{ type: "ITEM", subtotal: { amount, currencyCode: "BRL" } }] } }],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = new URL(String(url));
+        paths.push(u.pathname);
+        if (u.hostname === "docs.example") return new Response(tsv, { headers: { "content-type": "text/plain; charset=UTF-8" } });
+        expect(new Headers(init?.headers).get("x-amz-access-token")).toBe("tok");
+        const json = (body: unknown) => new Response(JSON.stringify(body));
+        switch (u.pathname) {
+          case "/reports/2021-06-30/reports":
+            return json({ reportId: "R1" });
+          case "/reports/2021-06-30/reports/R1":
+            return json({ reportId: "R1", processingStatus: "DONE", reportDocumentId: "D1" });
+          case "/reports/2021-06-30/documents/D1":
+            return json({ url: "https://docs.example/d1" });
+          case "/orders/2026-01-01/orders":
+            expect(u.searchParams.get("marketplaceIds")).toBe("A2Q3Y263D00KWC");
+            if (u.searchParams.get("lastUpdatedAfter")) return json({ orders: [order("701-1", "Shipped", "CAN-1", 2, "99.80"), order("701-2", "Canceled", "CAN-1", 1, "49.90")] });
+            return json({ orders: [] });
+          case "/finances/v0/orders/701-1/financialEvents":
+            return json({ payload: { FinancialEvents: { ShipmentEventList: [{ ShipmentItemList: [{ SellerSKU: "CAN-1", ItemFeeList: [{ FeeType: "Commission", FeeAmount: { CurrencyAmount: -15 } }] }] }] } } });
+          case "/sellers/v1/marketplaceParticipations":
+            return json({ payload: [{ marketplace: { id: "A2Q3Y263D00KWC" }, storeName: "Ateliê na Amazon" }] });
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    try {
+      expect(await amazonSync.syncAmazon(acc.id)).toMatchObject({ items: 1, orders: 2, newOrders: 2, fees: 1 });
+      paths.length = 0;
+      expect(await amazonSync.syncAmazon(acc.id)).toMatchObject({ orders: 2, newOrders: 0, fees: 0 }); // taxa já gravada: sem extrato de novo
+      expect(paths.some((p) => p.startsWith("/finances"))).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.AMAZON_APP_ID;
+      delete process.env.AMAZON_LWA_CLIENT_ID;
+      delete process.env.AMAZON_LWA_CLIENT_SECRET;
+    }
+
+    const items = await db.query<{ id: string; price: number; available_quantity: number; status: string }>(
+      "select id, price, available_quantity, status from items where account_id = $1",
+      [acc.id],
+    );
+    expect(items).toEqual([{ id: "AMZCAN-1", price: 49.9, available_quantity: 7, status: "active" }]);
+    const [line] = await db.query<{ sale_fee: number; unit_price: number }>("select sale_fee, unit_price from order_items where order_id = '701-1'");
+    expect(line).toEqual({ sale_fee: 7.5, unit_price: 49.9 });
+    expect((await db.query("select 1 from orders where id = '701-2' and status = 'cancelled'")).length).toBe(1);
+    const events = (await data.recentEvents(acc.id)).map((e) => e.title);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatch(/^Nova venda na Amazon: R\$\s99,80$/);
+    expect((await data.accountById(acc.id))?.nickname).toBe("Ateliê na Amazon");
+    expect(await data.accountsOf(B)).not.toContainEqual(expect.objectContaining({ id: acc.id }));
+
+    const r = await report.buildReport(acc.id, A, 7);
+    expect(r.totals).toMatchObject({ revenue: 99.8, orders: 1, fees: 15 });
+    await db.query("delete from ml_accounts where id = $1", [acc.id]);
   });
 
   it("equipe: convite só para o e-mail convidado, uma vez, e acesso só às lojas de quem convidou", async () => {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { signOut } from "../actions";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
 import { ROLE_LABEL } from "@/lib/analytics/team";
+import { MARKETPLACE_SHORT } from "@/lib/marketplaces";
 import { currentAccount } from "@/lib/session";
 
 const NAV = [
@@ -17,7 +18,7 @@ const NAV = [
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, account, accounts, role, ownerEmails } = await currentAccount();
   const label = (a: (typeof accounts)[number]) =>
-    `${a.marketplace === "shopee" ? "Shopee" : "ML"}: ${a.nickname ?? "loja"}${a.owner_id !== user.id ? ` · equipe de ${ownerEmails.get(a.owner_id) ?? "outro usuário"}` : ""}`;
+    `${MARKETPLACE_SHORT[a.marketplace]}: ${a.nickname ?? "loja"}${a.owner_id !== user.id ? ` · equipe de ${ownerEmails.get(a.owner_id) ?? "outro usuário"}` : ""}`;
   return (
     <div className="min-h-screen">
       <header className="no-print border-b border-line bg-surface">
