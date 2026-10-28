@@ -230,6 +230,30 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(await adsReport.buildAdsReport(B, accA)).toBeNull();
   });
 
+  it("segue sem as métricas de leilão quando a API recusa e o caminho antigo dá 404", async () => {
+    const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = decodeURIComponent(String(url));
+        if (u.includes("/advertising/advertisers?product_id=PADS")) return respond({ advertisers: [{ advertiser_id: 9, site_id: "MLB" }] });
+        if (u.includes("/advertising/advertisers/9/product_ads/campaigns")) return respond({ message: "not found" }, 404); // caminho antigo
+        if (u.includes("/product_ads/campaigns/search")) {
+          if (u.includes("impression_share")) return respond({ message: "invalid metrics" }, 400);
+          return respond({ results: [{ id: 5, name: "Fones", roas_target: 4, metrics: { cost: 10, total_amount: 60 } }] });
+        }
+        if (u.includes("/product_ads/ads/search")) return respond({ results: [] });
+        if (u.includes("/product_ads/ad_groups/search")) return respond({ results: [] });
+        return respond({ message: "inesperado " + u }, 500);
+      }),
+    );
+    try {
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, insights: 0 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("lê os anúncios pelos grupos quando o caminho antigo foi desligado", async () => {
     const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
     vi.stubGlobal(

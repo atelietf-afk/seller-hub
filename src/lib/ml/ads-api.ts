@@ -146,16 +146,17 @@ export class MlAdsApi {
 
   /** Tenta cada caminho em ordem; 404/400 de caminho desconhecido passa para o próximo. */
   private async firstWorking<T>(paths: string[]): Promise<T> {
-    let last: unknown;
+    let first: MlApiError | undefined;
     for (const path of paths) {
       try {
         return await this.api.get<T>(path, { headers: { "api-version": "2" } });
       } catch (err) {
-        last = err;
         if (!(err instanceof MlApiError) || ![400, 404, 405].includes(err.status)) throw err;
+        // Guarda o erro mais útil: um 400 do caminho atual diz mais que o 404 do caminho antigo.
+        if (!first || (first.status === 404 && err.status !== 404)) first = err;
       }
     }
-    throw last;
+    throw first;
   }
 
   private async paged(paths: (offset: number) => string[]): Promise<Obj[]> {
@@ -185,8 +186,8 @@ export class MlAdsApi {
       rows = await load(`${ADS_METRICS},${ADS_INSIGHT_METRICS}`);
     } catch (err) {
       // Alguma métrica de leilão não aceita nesta conta/site: segue só com as básicas.
-      if (!(err instanceof MlApiError) || err.status !== 400) throw err;
-      console.warn("Métricas de leilão recusadas pela API de publicidade", err.status);
+      if (!(err instanceof MlApiError) || ![400, 404, 405].includes(err.status)) throw err;
+      console.warn("Métricas de leilão recusadas pela API de publicidade", err.message);
       rows = await load(ADS_METRICS);
     }
     return rows.filter((r) => r.id != null || r.campaign_id != null).map(parseCampaign);
