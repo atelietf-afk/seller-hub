@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { adsTotals, diagnoseAd, tacos } from "@/lib/analytics/ads";
+import {
+  adDecision,
+  adsTotals,
+  breakEvenRoas,
+  diagnoseCampaign,
+  suggestedRoasTarget,
+  tacos,
+  type CampaignInput,
+} from "@/lib/analytics/ads";
 import { parseDaily, readMetrics, toFraction } from "@/lib/ml/ads-api";
 
 const m = (over = {}) => ({ clicks: 100, prints: 10_000, cost: 50, revenue: 500, units: 5, ...over });
-const codes = (d: ReturnType<typeof diagnoseAd>) => d.map((x) => x.code);
 
 describe("adsTotals", () => {
   it("soma e calcula ACOS, ROAS, CTR, CPC e conversão", () => {
@@ -20,31 +27,6 @@ describe("adsTotals", () => {
     expect(adsTotals([])).toMatchObject({ acos: null, roas: null, ctr: null, cpc: null });
     expect(tacos(10, 0)).toBeNull();
     expect(tacos(10, 200)).toBeCloseTo(0.05);
-  });
-});
-
-describe("diagnoseAd", () => {
-  it("gasto sem venda é crítico", () => {
-    expect(codes(diagnoseAd({ ...m({ revenue: 0, units: 0, cost: 40, clicks: 25 }), marginBeforeAds: 0.3 }))).toEqual(["spend_no_sales"]);
-  });
-
-  it("ACOS acima da margem dá prejuízo", () => {
-    const d = diagnoseAd({ ...m({ cost: 200, revenue: 500 }), marginBeforeAds: 0.25 });
-    expect(codes(d)).toEqual(["losing_money"]);
-    expect(d[0].severity).toBe("critical");
-  });
-
-  it("ACOS bem abaixo da margem é oportunidade de escalar", () => {
-    expect(codes(diagnoseAd({ ...m({ cost: 50, revenue: 1000 }), marginBeforeAds: 0.3 }))).toEqual(["scale"]);
-  });
-
-  it("sem custo cadastrado não julga a margem, mas usa o ACOS alvo", () => {
-    expect(codes(diagnoseAd({ ...m({ cost: 100, revenue: 500 }), marginBeforeAds: null }))).toEqual(["ok"]);
-    expect(codes(diagnoseAd({ ...m({ cost: 100, revenue: 500 }), marginBeforeAds: null, acosTarget: 0.1 }))).toEqual(["above_target"]);
-  });
-
-  it("CTR muito baixo com muita exibição", () => {
-    expect(codes(diagnoseAd({ ...m({ clicks: 10, prints: 20_000 }), marginBeforeAds: null }))).toContain("low_ctr");
   });
 });
 
@@ -79,5 +61,104 @@ describe("leitura da API de Product Ads", () => {
       [7, "2026-10-02", 3],
       [7, "2026-10-03", 4],
     ]);
+  });
+});
+
+
+describe("ROAS de equilíbrio e sugerido", () => {
+  it("equilíbrio é 1 ÷ margem", () => {
+    expect(breakEvenRoas(0.25)).toBe(4);
+    expect(breakEvenRoas(0)).toBeNull();
+    expect(breakEvenRoas(null)).toBeNull();
+  });
+
+  it("sugerido deixa lucro, arredonda para cima em 0,5 e respeita 1x–35x", () => {
+    expect(suggestedRoasTarget(0.28)).toBe(5.5); // 1 / (0,28 × 0,65) = 5,49
+    expect(suggestedRoasTarget(0.5)).toBe(3.5); // 3,08 → 3,5
+    expect(suggestedRoasTarget(0.01)).toBe(35);
+    expect(suggestedRoasTarget(2)).toBe(1);
+    expect(suggestedRoasTarget(-0.1)).toBeNull();
+  });
+});
+
+const camp = (o: Partial<CampaignInput> = {}): CampaignInput => ({
+  ...m({ cost: 100, revenue: 1000 }),
+  status: "active",
+  budget: 20,
+  roasTarget: 6,
+  margin: 0.3,
+  impressionShare: null,
+  lostByBudget: null,
+  lostByRank: null,
+  acosBenchmark: null,
+  week: { cost: 70, revenue: 700 },
+  prevWeek: { cost: 70, revenue: 700 },
+  ...o,
+});
+const ccodes = (c: CampaignInput) => diagnoseCampaign(c).map((d) => d.code);
+
+describe("diagnoseCampaign", () => {
+  it("ROAS objetivo abaixo do equilíbrio é crítico e sugere o valor", () => {
+    const d = diagnoseCampaign(camp({ roasTarget: 2.5 })); // equilíbrio 3,33x
+    expect(d[0]).toMatchObject({ code: "target_below_break_even", severity: "critical", suggest: { roasTarget: 5.5 } });
+  });
+
+  it("ROAS real abaixo do equilíbrio é prejuízo", () => {
+    expect(ccodes(camp({ cost: 400, revenue: 1000 }))).toContain("losing_money");
+  });
+
+  it("lucrativa e perdendo exibição por orçamento: sugere mais orçamento", () => {
+    const d = diagnoseCampaign(camp({ impressionShare: 0.5, lostByBudget: 0.3 }));
+    expect(d[0]).toMatchObject({ code: "budget_limited", severity: "success", suggest: { budget: 30 } }); // 20 × 1,6 = 32 → 30
+  });
+
+  it("lucrativa e gastando todo o orçamento, mesmo sem a métrica de perda", () => {
+    expect(diagnoseCampaign(camp({ week: { cost: 140, revenue: 1400 } }))[0]).toMatchObject({ code: "budget_limited", suggest: { budget: 25 } });
+  });
+
+  it("não sugere mais orçamento para campanha que não dá lucro ou está pausada", () => {
+    expect(ccodes(camp({ cost: 300, revenue: 1000, lostByBudget: 0.4 }))).not.toContain("budget_limited");
+    expect(ccodes(camp({ status: "paused", lostByBudget: 0.4 }))).not.toContain("budget_limited");
+  });
+
+  it("perde por classificação com ROAS objetivo exigente demais: sugere baixar até o que ainda dá lucro", () => {
+    const d = diagnoseCampaign(camp({ roasTarget: 10, lostByRank: 0.5 }));
+    expect(d.find((x) => x.code === "rank_limited")).toMatchObject({ suggest: { roasTarget: 5.5 } });
+    expect(diagnoseCampaign(camp({ roasTarget: 5.5, lostByRank: 0.5 })).find((x) => x.code === "rank_limited")?.suggest).toBeUndefined();
+  });
+
+  it("gasto sem venda: crítico se ativa, aviso se já pausada", () => {
+    expect(diagnoseCampaign(camp({ revenue: 0, units: 0, cost: 96 }))[0]).toMatchObject({ code: "spend_no_sales", severity: "critical" });
+    expect(diagnoseCampaign(camp({ status: "paused", revenue: 0, units: 0, cost: 96 }))[0]).toMatchObject({ severity: "warning" });
+  });
+
+  it("ACOS acima da referência e piora na semana", () => {
+    expect(ccodes(camp({ acosBenchmark: 0.05 }))).toContain("above_benchmark");
+    expect(ccodes(camp({ week: { cost: 100, revenue: 500 }, prevWeek: { cost: 50, revenue: 500 } }))).toContain("getting_worse");
+  });
+
+  it("sem margem não julga lucro, mas usa o ROAS objetivo para saber se vale escalar", () => {
+    expect(ccodes(camp({ margin: null, lostByBudget: 0.3 }))).toEqual(["budget_limited"]);
+    expect(ccodes(camp({ margin: null }))).toEqual(["ok"]);
+  });
+});
+
+describe("adDecision", () => {
+  const ad = (o = {}) => ({ ...m({ cost: 50, revenue: 500 }), margin: 0.3, stock: 10, itemStatus: "active", ...o });
+  it("pausa sem estoque, inativo ou gastando sem vender", () => {
+    expect(adDecision(ad({ stock: 0 })).decision).toBe("pausar");
+    expect(adDecision(ad({ itemStatus: "paused" })).decision).toBe("pausar");
+    expect(adDecision(ad({ revenue: 0, units: 0, clicks: 30 })).decision).toBe("pausar");
+  });
+  it("reduz quando dá prejuízo e sugere o ROAS objetivo", () => {
+    expect(adDecision(ad({ cost: 200, revenue: 500 }))).toMatchObject({ decision: "reduzir", suggestRoasTarget: 5.5 });
+  });
+  it("escala quando o ROAS é o dobro do equilíbrio", () => {
+    expect(adDecision(ad({ cost: 50, revenue: 1000 })).decision).toBe("escalar");
+  });
+  it("pede o custo e mantém o resto", () => {
+    expect(adDecision(ad({ margin: null })).decision).toBe("cadastrar_custo");
+    expect(adDecision(ad({ cost: 100, revenue: 500 })).decision).toBe("manter");
+    expect(adDecision(ad({ clicks: 10, prints: 20_000 })).decision).toBe("revisar");
   });
 });

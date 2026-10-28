@@ -1,5 +1,15 @@
 import "server-only";
-import { adsTotals, diagnoseAd, tacos, type AdDiagnosis, type AdsTotals } from "./analytics/ads";
+import {
+  adDecision,
+  adsTotals,
+  breakEvenRoas,
+  diagnoseCampaign,
+  suggestedRoasTarget,
+  tacos,
+  type AdDecision,
+  type AdsTotals,
+  type CampaignDiagnosis,
+} from "./analytics/ads";
 import { adsData, type AdsAccountStatus, type AdsCampaignRow, type AdsItemMetricsRow } from "./data/ads";
 import { ADS_PERIOD_DAYS } from "./ml/ads-sync";
 import { buildReport } from "./report";
@@ -14,8 +24,26 @@ export interface AdsReport {
   profitAfterAds: number;
   marginKnown: boolean;       // false se faltam custos de produto
   daily: { day: string; cost: number; revenue: number }[];
-  campaigns: (AdsCampaignRow & { totals: AdsTotals; diagnoses: AdDiagnosis[] })[];
-  items: (AdsItemMetricsRow & { totals: AdsTotals; breakEvenAcos: number | null; diagnoses: AdDiagnosis[] })[] | null;
+  /** Gasto em anúncios que a análise manda pausar (sem estoque, inativos ou sem venda). */
+  wasted: number;
+  campaigns: (AdsCampaignRow & {
+    totals: AdsTotals;
+    margin: number | null;
+    breakEvenRoas: number | null;
+    suggestedRoas: number | null;
+    budgetUsage: number | null; // gasto médio dos últimos 7 dias ÷ orçamento diário
+    diagnoses: CampaignDiagnosis[];
+  })[];
+  items:
+    | (AdsItemMetricsRow & {
+        totals: AdsTotals;
+        breakEvenAcos: number | null;
+        breakEvenRoas: number | null;
+        decision: AdDecision;
+        reason: string;
+        suggestRoasTarget: number | null;
+      })[]
+    | null;
 }
 
 /** Publicidade dos últimos 30 dias cruzada com o lucro real das vendas. */
@@ -38,6 +66,34 @@ export async function buildAdsReport(ownerId: string, accountId: string): Promis
     return { day, cost: d?.cost ?? 0, revenue: d?.revenue ?? 0 };
   });
 
+  const items = data.items.map((i) => {
+    const margin = itemMargin.get(i.item_id) ?? null;
+    const d = adDecision({ ...i, margin, stock: i.stock, itemStatus: i.item_status });
+    return {
+      ...i,
+      totals: adsTotals([i]),
+      breakEvenAcos: margin,
+      breakEvenRoas: breakEvenRoas(margin),
+      decision: d.decision,
+      reason: d.reason,
+      suggestRoasTarget: d.suggestRoasTarget,
+    };
+  });
+
+  // Margem de cada campanha: média das margens dos produtos dela, pesada pelas vendas do anúncio.
+  // Sem produto com custo na campanha, usa a margem da loja (se todos os custos estiverem cadastrados).
+  const campaignMargin = (id: number) => {
+    let revenue = 0;
+    let profit = 0;
+    for (const i of items) {
+      if (i.campaign_id !== id || i.breakEvenAcos === null || i.revenue <= 0) continue;
+      revenue += i.revenue;
+      profit += i.revenue * i.breakEvenAcos;
+    }
+    return revenue > 0 ? profit / revenue : storeMargin;
+  };
+  const weeks = new Map(data.weeks.map((w) => [Number(w.campaign_id), w]));
+
   return {
     periodDays: ADS_PERIOD_DAYS,
     status: data.status,
@@ -48,17 +104,31 @@ export async function buildAdsReport(ownerId: string, accountId: string): Promis
     profitAfterAds: Math.round((sales.totals.profit - totals.cost) * 100) / 100,
     marginKnown,
     daily,
-    campaigns: data.campaigns.map((c) => ({
-      ...c,
-      totals: adsTotals([c]),
-      diagnoses: diagnoseAd({ ...c, marginBeforeAds: storeMargin, acosTarget: c.acos_target }),
-    })),
-    items:
-      data.status.ads_status === "ok" && data.items.length === 0 && data.campaigns.length > 0
-        ? null
-        : data.items.map((i) => {
-            const margin = itemMargin.get(i.item_id) ?? null;
-            return { ...i, totals: adsTotals([i]), breakEvenAcos: margin, diagnoses: diagnoseAd({ ...i, marginBeforeAds: margin }) };
-          }),
+    wasted: Math.round(items.filter((i) => i.decision === "pausar").reduce((a, i) => a + i.cost, 0) * 100) / 100,
+    campaigns: data.campaigns.map((c) => {
+      const margin = campaignMargin(Number(c.id));
+      const w = weeks.get(Number(c.id));
+      const week = { cost: w?.cost7 ?? 0, revenue: w?.revenue7 ?? 0 };
+      return {
+        ...c,
+        totals: adsTotals([c]),
+        margin,
+        breakEvenRoas: breakEvenRoas(margin),
+        suggestedRoas: suggestedRoasTarget(margin),
+        budgetUsage: c.budget && c.budget > 0 && w ? week.cost / 7 / c.budget : null,
+        diagnoses: diagnoseCampaign({
+          ...c,
+          roasTarget: c.roas_target,
+          margin,
+          impressionShare: c.impression_share,
+          lostByBudget: c.lost_by_budget,
+          lostByRank: c.lost_by_rank,
+          acosBenchmark: c.acos_benchmark,
+          week,
+          prevWeek: { cost: w?.cost_prev7 ?? 0, revenue: w?.revenue_prev7 ?? 0 },
+        }),
+      };
+    }),
+    items: data.status.ads_status === "ok" && data.items.length === 0 && data.campaigns.length > 0 ? null : items,
   };
 }

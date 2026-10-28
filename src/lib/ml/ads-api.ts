@@ -21,6 +21,15 @@ export const ADS_METRICS = [
   "units_quantity",
 ].join(",");
 
+/** Métricas de leilão da campanha. Pedidas à parte: se a API recusar, seguimos sem elas. */
+export const ADS_INSIGHT_METRICS = [
+  "impression_share",
+  "top_impression_share",
+  "lost_impression_share_by_budget",
+  "lost_impression_share_by_ad_rank",
+  "acos_benchmark",
+].join(",");
+
 export interface AdsMetrics {
   clicks: number;
   prints: number;
@@ -41,6 +50,13 @@ export interface AdsCampaign extends AdsMetrics {
   strategy: string | null;
   budget: number | null;
   acosTarget: number | null; // fração
+  /** ROAS objetivo (1x–35x). Substituiu o ACOS alvo em 2026; quando só vem o ACOS, é 1 ÷ ACOS. */
+  roasTarget: number | null;
+  impressionShare: number | null; // frações
+  topImpressionShare: number | null;
+  lostByBudget: number | null;
+  lostByRank: number | null;
+  acosBenchmark: number | null;
 }
 
 export interface AdsDailyRow extends AdsMetrics {
@@ -73,6 +89,39 @@ export function toFraction(v: unknown): number | null {
   const n = optNum(v);
   if (n === null || !Number.isFinite(n) || n <= 0) return null;
   return n > 1 ? n / 100 : n;
+}
+
+/** Percentual que pode vir como 35 ou 0.35. Diferente de toFraction, aceita 0. */
+export function share(v: unknown): number | null {
+  const n = optNum(v);
+  if (n === null || !Number.isFinite(n) || n < 0) return null;
+  return n > 1 ? n / 100 : n;
+}
+
+const metricOf = (el: Obj, key: string) => {
+  const m = el.metrics && typeof el.metrics === "object" && !Array.isArray(el.metrics) ? (el.metrics as Obj) : null;
+  return m?.[key] ?? el[key];
+};
+
+/** Campanha da API no nosso formato. */
+export function parseCampaign(r: Obj): AdsCampaign {
+  const acosTarget = toFraction(r.acos_target);
+  const roas = optNum(r.roas_target);
+  return {
+    id: num(r.id ?? r.campaign_id),
+    name: String(r.name ?? `Campanha ${r.id ?? r.campaign_id}`),
+    status: str(r.status),
+    strategy: str(r.strategy),
+    budget: optNum(r.budget ?? r.daily_budget),
+    acosTarget,
+    roasTarget: roas !== null && Number.isFinite(roas) && roas > 0 ? roas : acosTarget ? Math.round((1 / acosTarget) * 100) / 100 : null,
+    impressionShare: share(metricOf(r, "impression_share")),
+    topImpressionShare: share(metricOf(r, "top_impression_share")),
+    lostByBudget: share(metricOf(r, "lost_impression_share_by_budget")),
+    lostByRank: share(metricOf(r, "lost_impression_share_by_ad_rank")),
+    acosBenchmark: toFraction(metricOf(r, "acos_benchmark")),
+    ...readMetrics(r),
+  };
 }
 
 function results(body: unknown): Obj[] {
@@ -127,23 +176,20 @@ export class MlAdsApi {
   }
 
   async campaigns(a: Advertiser, from: Date, to: Date): Promise<AdsCampaign[]> {
-    const rows = await this.paged((offset) =>
-      this.campaignPaths(
-        a,
-        new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics: ADS_METRICS, limit: "50", offset: String(offset) }),
-      ),
-    );
-    return rows
-      .filter((r) => r.id != null || r.campaign_id != null)
-      .map((r) => ({
-        id: num(r.id ?? r.campaign_id),
-        name: String(r.name ?? `Campanha ${r.id ?? r.campaign_id}`),
-        status: str(r.status),
-        strategy: str(r.strategy),
-        budget: optNum(r.budget),
-        acosTarget: toFraction(r.acos_target),
-        ...readMetrics(r),
-      }));
+    const load = (metrics: string) =>
+      this.paged((offset) =>
+        this.campaignPaths(a, new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics, limit: "50", offset: String(offset) })),
+      );
+    let rows: Obj[];
+    try {
+      rows = await load(`${ADS_METRICS},${ADS_INSIGHT_METRICS}`);
+    } catch (err) {
+      // Alguma métrica de leilão não aceita nesta conta/site: segue só com as básicas.
+      if (!(err instanceof MlApiError) || err.status !== 400) throw err;
+      console.warn("Métricas de leilão recusadas pela API de publicidade", err.status);
+      rows = await load(ADS_METRICS);
+    }
+    return rows.filter((r) => r.id != null || r.campaign_id != null).map(parseCampaign);
   }
 
   /** Métricas diárias por campanha. Aceita linhas com data no topo ou listas de dias dentro da campanha. */
@@ -164,8 +210,45 @@ export class MlAdsApi {
     return parseDaily(rows);
   }
 
+  /** De onde vieram as métricas por anúncio na última chamada a items() (para diagnóstico). */
+  itemsSource: "ads" | "ad_groups" | null = null;
+
+  /** Grupos de anúncios (o ML organiza os anúncios de cada campanha em grupos). */
+  async adGroups(a: Advertiser): Promise<{ id: number; campaignId: number | null }[]> {
+    const rows = await this.paged((offset) => {
+      const q = new URLSearchParams({ limit: "50", offset: String(offset) });
+      return [
+        `/advertising/${a.siteId}/advertisers/${a.advertiserId}/product_ads/ad_groups/search?${q}`,
+        `/marketplace/advertising/${a.siteId}/advertisers/${a.advertiserId}/product_ads/ad_groups/search?${q}`,
+      ];
+    });
+    return rows
+      .filter((r) => r.id != null || r.ad_group_id != null)
+      .map((r) => ({ id: num(r.id ?? r.ad_group_id), campaignId: optNum(r.campaign_id) }));
+  }
+
+  /** Métricas por anúncio pelos grupos: o caminho que substitui /product_ads/ads/search (desativado em 2026). */
+  async itemsViaAdGroups(a: Advertiser, from: Date, to: Date): Promise<AdsItemRow[]> {
+    const out: AdsItemRow[] = [];
+    for (const g of await this.adGroups(a)) {
+      const rows = await this.paged((offset) => {
+        const q = new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics: ADS_METRICS, limit: "50", offset: String(offset) });
+        return [
+          `/advertising/${a.siteId}/product_ads/ad_groups/${g.id}/ads?${q}`,
+          `/marketplace/advertising/${a.siteId}/product_ads/ad_groups/${g.id}/ads?${q}`,
+        ];
+      });
+      for (const r of rows) {
+        if (r.item_id == null && r.id == null) continue;
+        out.push({ itemId: String(r.item_id ?? r.id), campaignId: optNum(r.campaign_id) ?? g.campaignId, status: str(r.status), ...readMetrics(r) });
+      }
+    }
+    return out;
+  }
+
   /** Totais por anúncio. Retorna null se a conta/API não oferece esse detalhe. */
   async items(a: Advertiser, from: Date, to: Date): Promise<AdsItemRow[] | null> {
+    const unavailable = (err: unknown) => err instanceof MlApiError && [400, 403, 404, 405, 410].includes(err.status);
     try {
       const rows = await this.paged((offset) => {
         const q = new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics: ADS_METRICS, limit: "50", offset: String(offset) });
@@ -174,6 +257,7 @@ export class MlAdsApi {
           `/advertising/advertisers/${a.advertiserId}/product_ads/ads?${q}`,
         ];
       });
+      this.itemsSource = "ads";
       return rows
         .filter((r) => r.item_id != null || r.id != null)
         .map((r) => ({
@@ -183,7 +267,14 @@ export class MlAdsApi {
           ...readMetrics(r),
         }));
     } catch (err) {
-      if (err instanceof MlApiError && [400, 403, 404, 405].includes(err.status)) return null;
+      if (!unavailable(err)) throw err;
+    }
+    try {
+      const rows = await this.itemsViaAdGroups(a, from, to);
+      this.itemsSource = "ad_groups";
+      return rows;
+    } catch (err) {
+      if (unavailable(err)) return null;
       throw err;
     }
   }

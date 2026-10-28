@@ -11,6 +11,11 @@ export interface AdsSyncResult {
   campaigns: number;
   dailyRows: number;
   items: number | null; // null: a API não deu o detalhe por anúncio
+  itemsSource?: "ads" | "ad_groups" | null;
+  /** Quantos campos de leilão vieram (impression_share etc.), para conferir se a API entregou. */
+  insights?: number;
+  /** Grupos de anúncios encontrados no caminho novo (conferência antes do antigo ser desligado). */
+  adGroups?: number | string;
   error?: string;
 }
 
@@ -46,15 +51,29 @@ export async function syncAds(accountId: string): Promise<AdsSyncResult> {
       return [];
     });
     const items = await ads.items(advertiser, from, to);
+    // Enquanto o caminho antigo funciona, confere se o novo (por grupos) responde, para trocar sem susto.
+    const adGroups =
+      ads.itemsSource === "ads"
+        ? await ads.adGroups(advertiser).then(
+            (g) => g.length,
+            (err) => (err instanceof MlApiError ? `erro ${err.status}` : "erro"),
+          )
+        : undefined;
 
     await query(
-      `insert into ads_campaigns (account_id, id, name, status, strategy, budget, acos_target, period_days, clicks, prints, cost, revenue, units)
+      `insert into ads_campaigns (account_id, id, name, status, strategy, budget, acos_target, roas_target, impression_share,
+         top_impression_share, lost_by_budget, lost_by_rank, acos_benchmark, period_days, clicks, prints, cost, revenue, units)
        select $1::uuid, (c->>'id')::bigint, c->>'name', c->>'status', c->>'strategy', (c->>'budget')::numeric, (c->>'acosTarget')::numeric,
+              (c->>'roasTarget')::numeric, (c->>'impressionShare')::numeric, (c->>'topImpressionShare')::numeric,
+              (c->>'lostByBudget')::numeric, (c->>'lostByRank')::numeric, (c->>'acosBenchmark')::numeric,
               $3::int, (c->>'clicks')::int, (c->>'prints')::int, (c->>'cost')::numeric, (c->>'revenue')::numeric, (c->>'units')::int
        from json_array_elements($2::json) c
        on conflict (account_id, id) do update set name = excluded.name, status = excluded.status, strategy = excluded.strategy,
-         budget = excluded.budget, acos_target = excluded.acos_target, period_days = excluded.period_days, clicks = excluded.clicks,
-         prints = excluded.prints, cost = excluded.cost, revenue = excluded.revenue, units = excluded.units, updated_at = now()`,
+         budget = excluded.budget, acos_target = excluded.acos_target, roas_target = excluded.roas_target,
+         impression_share = excluded.impression_share, top_impression_share = excluded.top_impression_share,
+         lost_by_budget = excluded.lost_by_budget, lost_by_rank = excluded.lost_by_rank, acos_benchmark = excluded.acos_benchmark,
+         period_days = excluded.period_days, clicks = excluded.clicks, prints = excluded.prints, cost = excluded.cost,
+         revenue = excluded.revenue, units = excluded.units, updated_at = now()`,
       [accountId, JSON.stringify(campaigns), ADS_PERIOD_DAYS],
     );
     if (daily.length) {
@@ -81,8 +100,17 @@ export async function syncAds(accountId: string): Promise<AdsSyncResult> {
         [accountId, JSON.stringify(items), ADS_PERIOD_DAYS],
       );
     }
+    const insights = campaigns.filter((c) => c.impressionShare !== null || c.lostByBudget !== null || c.lostByRank !== null).length;
     return finish(
-      { status: "ok", campaigns: campaigns.length, dailyRows: daily.length, items: items ? items.length : null },
+      {
+        status: "ok",
+        campaigns: campaigns.length,
+        dailyRows: daily.length,
+        items: items ? items.length : null,
+        itemsSource: ads.itemsSource,
+        insights,
+        ...(adGroups !== undefined ? { adGroups } : {}),
+      },
       advertiser.advertiserId,
     );
   } catch (err) {

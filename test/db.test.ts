@@ -125,7 +125,7 @@ describe.skipIf(!url)("banco de dados", () => {
     expect((await store.upsertQuestion(accA, { ...q, status: "ANSWERED" })).isNew).toBe(false);
     await store.upsertQuestion(accA, { ...q, id: 6 });
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = periods.localDay(new Date()); // o relatório conta os dias no horário de Brasília
     await store.saveVisits("MLBA1", [{ day: today, visits: 50 }]);
     await store.saveVisits("MLBA1", [{ day: today, visits: 80 }]);
 
@@ -170,15 +170,37 @@ describe.skipIf(!url)("banco de dados", () => {
         if (u.includes("/advertising/advertisers?product_id=PADS")) return respond({ advertisers: [{ advertiser_id: 9, site_id: "MLB" }] });
         if (u.includes("/product_ads/campaigns")) {
           if (u.includes("aggregation_type=DAILY")) return respond({ results: [{ campaign_id: 5, date: today, cost: 20, total_amount: 200 }] });
-          return respond({ results: [{ id: 5, name: "Fones", status: "active", budget: 30, acos_target: 10, metrics: { clicks: 40, prints: 4000, cost: 20, total_amount: 200, units_quantity: 2 } }] });
+          return respond({
+            results: [
+              {
+                id: 5,
+                name: "Fones",
+                status: "active",
+                strategy: "PROFITABILITY",
+                budget: 30,
+                roas_target: 2,
+                metrics: {
+                  clicks: 40,
+                  prints: 4000,
+                  cost: 20,
+                  total_amount: 200,
+                  units_quantity: 2,
+                  impression_share: 40,
+                  lost_impression_share_by_budget: 25,
+                  lost_impression_share_by_ad_rank: 35,
+                },
+              },
+            ],
+          });
         }
         if (u.includes("/product_ads/ads/search"))
           return respond({ results: [{ item_id: "MLBA1", campaign_id: 5, metrics: { clicks: 40, prints: 4000, cost: 20, total_amount: 200, units_quantity: 2 } }] });
+        if (u.includes("/product_ads/ad_groups/search")) return respond({ results: [{ id: 77, campaign_id: 5 }] });
         return respond({ message: "inesperado " + u }, 500);
       }),
     );
     try {
-      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, dailyRows: 1, items: 1 });
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, dailyRows: 1, items: 1, itemsSource: "ads", insights: 1, adGroups: 1 });
       expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok" }); // rodar de novo não duplica
     } finally {
       vi.unstubAllGlobals();
@@ -193,8 +215,45 @@ describe.skipIf(!url)("banco de dados", () => {
     const item = r.items!.find((i) => i.item_id === "MLBA1")!;
     expect(item.title).toBe("MLBA1");
     expect(item.breakEvenAcos).toBeCloseTo(0.28); // margem do MLBA1: 56 / 200
+    expect(item.breakEvenRoas).toBeCloseTo(1 / 0.28);
+    expect(item.decision).toBe("escalar"); // ROAS 10x, bem acima do equilíbrio de 3,6x
+
+    const c = r.campaigns[0];
+    expect(c).toMatchObject({ roas_target: 2, impression_share: 0.4, lost_by_budget: 0.25, lost_by_rank: 0.35, strategy: "PROFITABILITY" });
+    expect(c.margin).toBeCloseTo(0.28); // margem dos produtos da campanha
+    expect(c.suggestedRoas).toBe(5.5);
+    expect(c.budgetUsage).toBeCloseTo(20 / 7 / 30);
+    const codes = c.diagnoses.map((d) => d.code);
+    expect(codes).toEqual(expect.arrayContaining(["target_below_break_even", "budget_limited", "rank_limited"]));
+    expect(c.diagnoses.find((d) => d.code === "budget_limited")?.suggest?.budget).toBe(50); // 30 × (0,4 + 0,25) / 0,4 = 48,75
 
     expect(await adsReport.buildAdsReport(B, accA)).toBeNull();
+  });
+
+  it("lê os anúncios pelos grupos quando o caminho antigo foi desligado", async () => {
+    const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = String(url);
+        if (u.includes("/advertising/advertisers?product_id=PADS")) return respond({ advertisers: [{ advertiser_id: 9, site_id: "MLB" }] });
+        if (u.includes("/product_ads/campaigns")) return respond({ results: [{ id: 5, name: "Fones", acos_target: 25 }] });
+        if (u.includes("/product_ads/ads/search") || u.includes("/product_ads/ads?")) return respond({ message: "gone" }, 404);
+        if (u.includes("/product_ads/ad_groups/search")) return respond({ results: [{ id: 77, campaign_id: 5 }] });
+        if (u.includes("/product_ads/ad_groups/77/ads"))
+          return respond({ results: [{ item_id: "MLBA1", status: "active", metrics: { clicks: 10, cost: 5, total_amount: 50 } }] });
+        return respond({ message: "inesperado " + u }, 500);
+      }),
+    );
+    try {
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", items: 1, itemsSource: "ad_groups" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const [m] = await db.query<{ campaign_id: number; cost: number }>("select campaign_id, cost from ads_item_metrics where account_id = $1", [accA]);
+    expect(m).toEqual({ campaign_id: 5, cost: 5 });
+    const [c] = await db.query<{ roas_target: number }>("select roas_target from ads_campaigns where account_id = $1 and id = 5", [accA]);
+    expect(c.roas_target).toBe(4); // só veio ACOS alvo de 25%: ROAS 4x
   });
 
   it("marca erro da publicidade sem derrubar nada", async () => {
