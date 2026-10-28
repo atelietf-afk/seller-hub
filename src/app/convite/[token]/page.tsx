@@ -4,7 +4,7 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { normalizeEmail, ROLE_HINT, ROLE_LABEL } from "@/lib/analytics/team";
 import { inviteByToken } from "@/lib/data/team";
 import { dateOnly } from "@/lib/format";
-import { currentUser } from "@/lib/session";
+import { signedInUser } from "@/lib/session";
 
 const ERRORS: Record<string, string> = {
   invalido: "Este convite não existe ou foi cancelado.",
@@ -16,7 +16,7 @@ const ERRORS: Record<string, string> = {
 
 // Convite para a equipe: a pessoa entra (ou cria a conta) com o e-mail convidado e aceita.
 export default async function InvitePage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ erro?: string }> }) {
-  const user = await currentUser();
+  const user = await signedInUser();
   const { token } = await params;
   const { erro } = await searchParams;
   const invite = await inviteByToken(token);

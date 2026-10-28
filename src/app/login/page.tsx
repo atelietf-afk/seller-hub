@@ -23,15 +23,28 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         {next && <input type="hidden" name="next" value={next} />}
         <label className="block text-sm">
           E-mail
-          <input name="email" type="email" required autoComplete="email" className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2" />
+          <input
+            name="email"
+            type="email"
+            required
+            autoComplete="email"
+            className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
+          />
         </label>
         <label className="block text-sm">
           Senha
-          <input name="password" type="password" required minLength={8} autoComplete="current-password" className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2" />
+          <input
+            name="password"
+            type="password"
+            required
+            autoComplete="current-password"
+            className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
+          />
         </label>
         <button formAction={signIn} className="w-full rounded-md bg-accent px-3 py-2 font-medium text-white">
           Entrar
         </button>
+        <p className="text-xs text-muted">Para criar conta: pelo menos 12 caracteres, com letra, número e caractere especial.</p>
         <button formAction={signUp} className="w-full rounded-md border border-line px-3 py-2 text-sm text-ink-2">
           Criar conta
         </button>

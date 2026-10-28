@@ -882,9 +882,66 @@ describe.skipIf(!url)("banco de dados", () => {
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {
-    await auth.auth.api.signUpEmail({ body: { email: "c@x.com", password: "senha-segura-1", name: "c" } });
-    const res = await auth.auth.api.signInEmail({ body: { email: "c@x.com", password: "senha-segura-1" } });
-    expect(res.user.email).toBe("c@x.com");
+    await auth.auth.api.signUpEmail({ body: { email: "c@x.com", password: "senha-segura-1!", name: "c" } });
+    const res = await auth.auth.api.signInEmail({ body: { email: "c@x.com", password: "senha-segura-1!" } });
+    expect("user" in res && res.user.email).toBe("c@x.com");
     await expect(auth.auth.api.signInEmail({ body: { email: "c@x.com", password: "errada-123" } })).rejects.toThrow();
+    // senha curta (regra antiga de 8) não passa mais
+    await expect(auth.auth.api.signUpEmail({ body: { email: "d@x.com", password: "curta-12", name: "d" } })).rejects.toThrow();
+  });
+
+  it("segurança: senha trocada fica registrada e o login com duas etapas exige o código", async () => {
+    const { createOTP } = await import("@better-auth/utils/otp");
+    const { base32 } = await import("@better-auth/utils/base32");
+    const { markPasswordChanged } = await import("@/lib/data/security");
+    const { pendingSecurityStep } = await import("@/lib/analytics/security");
+    const api = auth.auth.api;
+    const cookieOf = (h: Headers) =>
+      h
+        .getSetCookie()
+        .map((c) => c.split(";")[0])
+        .filter((c) => !c.endsWith("="))
+        .join("; ");
+    const email = "e@x.com";
+    const password = "Ateliê-Toque-2026";
+
+    const signup = await api.signUpEmail({ body: { email, password, name: "e" }, returnHeaders: true });
+    let cookie = cookieOf(signup.headers);
+    const now = new Date();
+    let session = await api.getSession({ headers: new Headers({ cookie }) });
+    expect(pendingSecurityStep(session!.user, now)).toBe("senha"); // sem data: troca obrigatória
+    await markPasswordChanged(session!.user.id);
+    session = await api.getSession({ headers: new Headers({ cookie }) });
+    expect(new Date(session!.user.passwordChangedAt!).getTime()).toBeGreaterThan(now.getTime() - 60_000);
+    expect(pendingSecurityStep(session!.user, now)).toBe("duas-etapas");
+
+    await expect(api.enableTwoFactor({ body: { password: "errada", method: "totp" }, headers: new Headers({ cookie }) })).rejects.toThrow();
+    const enabled = await api.enableTwoFactor({ body: { password, method: "totp" }, headers: new Headers({ cookie }) });
+    if (enabled.method !== "totp") throw new Error("esperava totp");
+    expect(enabled.backupCodes.length).toBeGreaterThan(5);
+    const secret = new TextDecoder().decode(base32.decode(new URL(enabled.totpURI).searchParams.get("secret")!));
+    const otp = createOTP(secret);
+    // Antes de confirmar o primeiro código, o login ainda não pede a segunda etapa.
+    expect("twoFactorRedirect" in (await api.signInEmail({ body: { email, password } }))).toBe(false);
+    const confirmed = await api.verifyTOTP({ body: { code: await otp.totp() }, headers: new Headers({ cookie }), returnHeaders: true });
+    cookie = cookieOf(confirmed.headers);
+    session = await api.getSession({ headers: new Headers({ cookie }) });
+    expect(session!.user.twoFactorEnabled).toBe(true);
+    expect(pendingSecurityStep(session!.user, now)).toBeNull();
+
+    // Login: senha certa não cria sessão sozinha
+    const first = await api.signInEmail({ body: { email, password }, returnHeaders: true });
+    expect(first.response).toMatchObject({ twoFactorRedirect: true });
+    const pending = cookieOf(first.headers);
+    expect(await api.getSession({ headers: new Headers({ cookie: pending }) })).toBeNull();
+    await expect(api.verifyTOTP({ body: { code: "000000" }, headers: new Headers({ cookie: pending }) })).rejects.toThrow();
+    const ok = await api.verifyTOTP({ body: { code: await otp.totp() }, headers: new Headers({ cookie: pending }), returnHeaders: true });
+    expect((await api.getSession({ headers: new Headers({ cookie: cookieOf(ok.headers) }) }))?.user.email).toBe(email);
+
+    // Código de recuperação também entra, uma vez só
+    const again = cookieOf((await api.signInEmail({ body: { email, password }, returnHeaders: true })).headers);
+    await api.verifyBackupCode({ body: { code: enabled.backupCodes[0] }, headers: new Headers({ cookie: again }) });
+    const third = cookieOf((await api.signInEmail({ body: { email, password }, returnHeaders: true })).headers);
+    await expect(api.verifyBackupCode({ body: { code: enabled.backupCodes[0] }, headers: new Headers({ cookie: third }) })).rejects.toThrow();
   });
 });

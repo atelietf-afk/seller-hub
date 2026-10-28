@@ -2,6 +2,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
+import { pendingSecurityStep } from "./analytics/security";
 import { can, type Permission, type Role } from "./analytics/team";
 import { auth } from "./auth";
 import { accountsOfOwners } from "./data/accounts";
@@ -11,10 +12,18 @@ import { membershipsOf } from "./data/team";
 // ele vê e com qual perfil. Os dados são sempre filtrados pelo dono da conta (ownerId): para
 // quem é da equipe, é o dono que convidou.
 
-export const currentUser = cache(async () => {
+/** Usuário logado, mesmo com senha vencida ou sem duas etapas (só para a página de segurança e o convite). */
+export const signedInUser = cache(async () => {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
   return session.user;
+});
+
+/** Usuário logado e em dia com a segurança (senha válida e verificação em duas etapas ativa). */
+export const currentUser = cache(async () => {
+  const user = await signedInUser();
+  if (pendingSecurityStep(user, new Date())) redirect("/seguranca");
+  return user;
 });
 
 /** Cookie com a conta escolhida no seletor do topo (Mercado Livre, Shopee, conta da equipe...). */

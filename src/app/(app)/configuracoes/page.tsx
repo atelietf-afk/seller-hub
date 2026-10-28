@@ -63,6 +63,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </p>
       )}
 
+      <section className="flex items-center justify-between rounded-xl border border-line bg-surface p-5">
+        <div>
+          <h2 className="font-semibold">Segurança da conta</h2>
+          <p className="text-sm text-ink-2">Senha e verificação em duas etapas.</p>
+        </div>
+        <Link href="/seguranca" className="rounded-md border border-line px-3 py-1.5 text-sm font-medium">
+          Abrir
+        </Link>
+      </section>
+
       <section className="rounded-xl border border-line bg-surface p-5">
         <h2 className="font-semibold">Suas lojas conectadas</h2>
         {!ownAccounts.length && <p className="mt-2 text-sm text-ink-2">Nenhuma loja sua conectada ainda.</p>}

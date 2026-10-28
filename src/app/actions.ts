@@ -23,10 +23,13 @@ import { saveCompetitorSnapshot } from "@/lib/ml/spy-sync";
 import { apiFor } from "@/lib/ml/tokens";
 import { parseMoney } from "@/lib/format";
 import { syncAnyAccount } from "@/lib/sync";
-import { ACCOUNT_COOKIE, currentAccount, currentUser, INVITE_COOKIE, requirePermission } from "@/lib/session";
+import { ACCOUNT_COOKIE, currentAccount, INVITE_COOKIE, requirePermission, signedInUser } from "@/lib/session";
 import { isMemberRole, normalizeEmail, validEmail, type Permission } from "@/lib/analytics/team";
 import * as teamData from "@/lib/data/team";
 import { safeNext } from "@/lib/next-path";
+import QRCode from "qrcode";
+import { isBackupCode, passwordProblem } from "@/lib/analytics/security";
+import { markPasswordChanged } from "@/lib/data/security";
 import { createDailySummary } from "@/lib/summaries";
 import * as adsData from "@/lib/data/ads";
 import { parseBudget, parseRoas } from "@/lib/analytics/ad-changes";
@@ -38,7 +41,9 @@ import { adsWriteEnabled } from "@/lib/ml/ads-write";
 // Login -------------------------------------------------------------------
 
 const credentials = (formData: FormData) => ({
-  email: String(formData.get("email") ?? "").trim().toLowerCase(),
+  email: String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase(),
   password: String(formData.get("password") ?? ""),
 });
 
@@ -49,27 +54,113 @@ const loginError = (formData: FormData, erro: string) => {
   return `/login?erro=${encodeURIComponent(erro)}${next ? `&next=${encodeURIComponent(next)}` : ""}`;
 };
 
+const nextQuery = (formData: FormData) => {
+  const next = safeNext(formData.get("next"));
+  return next ? `?next=${encodeURIComponent(next)}` : "";
+};
+
 export async function signIn(formData: FormData) {
+  let needsCode = false;
   try {
-    await auth.api.signInEmail({ body: credentials(formData), headers: await headers() });
+    const result = await auth.api.signInEmail({ body: credentials(formData), headers: await headers() });
+    needsCode = "twoFactorRedirect" in result && !!result.twoFactorRedirect;
   } catch (err) {
     if (err instanceof APIError) redirect(loginError(formData, "credenciais"));
     console.error("Falha no login", err);
     redirect(loginError(formData, "indisponivel"));
   }
+  // Com a verificação em duas etapas ativa, a sessão só nasce depois do código.
+  if (needsCode) redirect(`/login/verificar${nextQuery(formData)}`);
   redirect(afterLogin(formData));
 }
 
 export async function signUp(formData: FormData) {
   const { email, password } = credentials(formData);
+  const problem = passwordProblem(password);
+  if (problem) redirect(loginError(formData, problem));
   try {
-    await auth.api.signUpEmail({ body: { email, password, name: email.split("@")[0] }, headers: await headers() });
+    const { user } = await auth.api.signUpEmail({ body: { email, password, name: email.split("@")[0] }, headers: await headers() });
+    await markPasswordChanged(user.id);
   } catch (err) {
     if (err instanceof APIError) redirect(loginError(formData, err.message));
     console.error("Falha no cadastro", err);
     redirect(loginError(formData, "indisponivel"));
   }
   redirect(afterLogin(formData));
+}
+
+/** Segunda etapa do login: código do aplicativo autenticador ou código de recuperação. */
+export async function verifyLoginCode(formData: FormData) {
+  const code = String(formData.get("code") ?? "").trim();
+  try {
+    if (isBackupCode(code)) await auth.api.verifyBackupCode({ body: { code }, headers: await headers() });
+    else await auth.api.verifyTOTP({ body: { code: code.replace(/\s/g, "") }, headers: await headers() });
+  } catch (err) {
+    if (!(err instanceof APIError)) console.error("Falha na verificação em duas etapas", err);
+    const next = safeNext(formData.get("next"));
+    redirect(`/login/verificar?erro=codigo${next ? `&next=${encodeURIComponent(next)}` : ""}`);
+  }
+  redirect(afterLogin(formData));
+}
+
+// Segurança da conta ---------------------------------------------------------
+
+export async function changePasswordAction(formData: FormData) {
+  const user = await signedInUser();
+  const currentPassword = String(formData.get("currentPassword") ?? "");
+  const newPassword = String(formData.get("newPassword") ?? "");
+  const back = (erro: string) => redirect(`/seguranca?erro=${encodeURIComponent(erro)}`);
+  if (newPassword !== String(formData.get("confirmPassword") ?? "")) back("A confirmação não bate com a nova senha.");
+  if (newPassword === currentPassword) back("A nova senha precisa ser diferente da atual.");
+  const problem = passwordProblem(newPassword);
+  if (problem) back(problem);
+  try {
+    // Encerra as outras sessões: quem tinha a senha antiga perde o acesso.
+    await auth.api.changePassword({ body: { currentPassword, newPassword, revokeOtherSessions: true }, headers: await headers() });
+  } catch (err) {
+    if (err instanceof APIError) back("Senha atual incorreta.");
+    throw err;
+  }
+  await markPasswordChanged(user.id);
+  console.info("Senha trocada", user.id);
+  redirect("/seguranca?ok=senha");
+}
+
+export type TwoFactorSetupState = { error?: string; qr?: string; secret?: string; backupCodes?: string[] };
+
+/** Passo 1 da verificação em duas etapas: confere a senha e gera o QR code e os códigos de recuperação. */
+export async function startTwoFactor(_prev: TwoFactorSetupState, formData: FormData): Promise<TwoFactorSetupState> {
+  await signedInUser();
+  try {
+    const enabled = await auth.api.enableTwoFactor({
+      body: { password: String(formData.get("password") ?? ""), method: "totp" },
+      headers: await headers(),
+    });
+    if (enabled.method !== "totp") return { error: "Não foi possível gerar o código. Tente de novo." };
+    const { totpURI, backupCodes } = enabled;
+    return {
+      qr: await QRCode.toDataURL(totpURI, { margin: 1, width: 220 }),
+      secret: new URL(totpURI).searchParams.get("secret") ?? "",
+      backupCodes,
+    };
+  } catch (err) {
+    if (err instanceof APIError) return { error: "Senha incorreta." };
+    throw err;
+  }
+}
+
+/** Passo 2: o primeiro código do aplicativo confirma e liga a verificação. */
+export async function confirmTwoFactor(prev: TwoFactorSetupState, formData: FormData): Promise<TwoFactorSetupState> {
+  const user = await signedInUser();
+  try {
+    await auth.api.verifyTOTP({ body: { code: String(formData.get("code") ?? "").replace(/\s/g, "") }, headers: await headers() });
+  } catch (err) {
+    if (err instanceof APIError)
+      return { ...prev, error: "Código incorreto ou vencido. Confira o horário do celular e use o código atual." };
+    throw err;
+  }
+  console.info("Verificação em duas etapas ativada", user.id);
+  redirect("/seguranca?ok=duas-etapas");
 }
 
 export async function signOut() {
@@ -135,7 +226,10 @@ export async function saveSettings(formData: FormData) {
     return n !== null && n <= 100 ? n / 100 : fallback;
   };
   const days = Number(formData.get("lowStockDays"));
-  const storeInfo = String(formData.get("storeInfo") ?? "").trim().slice(0, 3000) || null;
+  const storeInfo =
+    String(formData.get("storeInfo") ?? "")
+      .trim()
+      .slice(0, 3000) || null;
   // A IA copia daqui para as respostas: dado de contato aqui viraria punição no ML.
   if (storeInfo && answerProblems(storeInfo).some((p) => ["phone", "email", "link", "social"].includes(p.code))) {
     redirect("/configuracoes?ml=contato-na-loja");
@@ -183,7 +277,10 @@ export async function addCompetitor(formData: FormData) {
   if (!listing) back("nao-encontrado");
   if (listing!.sellerId === Number(account.ml_user_id)) back("proprio");
 
-  const note = String(formData.get("note") ?? "").trim().slice(0, 80) || null;
+  const note =
+    String(formData.get("note") ?? "")
+      .trim()
+      .slice(0, 80) || null;
   if (!(await spyData.addCompetitor(account.owner_id, account.id, parsed!.id, parsed!.kind, note))) back("nao-encontrado");
   await saveCompetitorSnapshot(account.id, parsed!.id, listing!, new Date().toISOString().slice(0, 10));
   revalidatePath("/espiao");
@@ -239,7 +336,13 @@ export async function generateReportNow(formData: FormData) {
   redirect(ok ? `/relatorios/${period.kind}/${period.start}` : "/relatorios?erro=1");
 }
 
-const DELIVERY_PARAM = { sent: "ok", failed: "erro", "no-phone": "sem-numero", "not-configured": "desligado", "no-report": "erro" } as const;
+const DELIVERY_PARAM = {
+  sent: "ok",
+  failed: "erro",
+  "no-phone": "sem-numero",
+  "not-configured": "desligado",
+  "no-report": "erro",
+} as const;
 
 export async function sendReportWhatsapp(formData: FormData) {
   const account = await ownAccount();
@@ -372,7 +475,8 @@ export async function createSuggestedCampaignAction(formData: FormData) {
   }
   if (failure) return backToAds(failure, "sugestoes");
 
-  if (id !== null) await adsData.insertCreatedCampaign(account.owner_id, account.id, { id, name: s.name, strategy: s.strategy, budget, roasTarget: roas });
+  if (id !== null)
+    await adsData.insertCreatedCampaign(account.owner_id, account.id, { id, name: s.name, strategy: s.strategy, budget, roasTarget: roas });
   await adsData.recordAdsChange(account.owner_id, account.id, {
     campaign_id: id,
     campaign_name: s.name,
@@ -495,13 +599,21 @@ export async function removeMemberAction(formData: FormData) {
 }
 
 export async function acceptInviteAction(formData: FormData) {
-  const user = await currentUser();
+  // O convite pode ser aceito antes de configurar a segurança; o painel cobra depois.
+  const user = await signedInUser();
   const token = String(formData.get("token") ?? "");
   const { result, ownerId } = await teamData.acceptInvite(token, { id: user.id, email: user.email });
   if (result !== "ok") redirect(`/convite/${encodeURIComponent(token)}?erro=${result}`);
   // Abre direto na primeira loja do dono que convidou.
   const first = (await data.accountsOf(ownerId!))[0];
-  if (first) (await cookies()).set(ACCOUNT_COOKIE, first.id, { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 60 * 60 * 24 * 365 });
+  if (first)
+    (await cookies()).set(ACCOUNT_COOKIE, first.id, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+    });
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
