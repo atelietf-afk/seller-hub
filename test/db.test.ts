@@ -168,6 +168,12 @@ describe.skipIf(!url)("banco de dados", () => {
       vi.fn(async (url: string | URL | Request) => {
         const u = String(url);
         if (u.includes("/advertising/advertisers?product_id=PADS")) return respond({ advertisers: [{ advertiser_id: 9, site_id: "MLB" }] });
+        if (u.includes("/product_ads/campaigns/5?"))
+          return respond({
+            id: 5,
+            roas_target: 2,
+            metrics: { impression_share: 40, lost_impression_share_by_budget: 25, lost_impression_share_by_ad_rank: 35 },
+          });
         if (u.includes("/product_ads/campaigns")) {
           if (u.includes("aggregation_type=DAILY")) return respond({ results: [{ campaign_id: 5, date: today, cost: 20, total_amount: 200 }] });
           return respond({
@@ -178,17 +184,7 @@ describe.skipIf(!url)("banco de dados", () => {
                 status: "active",
                 strategy: "PROFITABILITY",
                 budget: 30,
-                roas_target: 2,
-                metrics: {
-                  clicks: 40,
-                  prints: 4000,
-                  cost: 20,
-                  total_amount: 200,
-                  units_quantity: 2,
-                  impression_share: 40,
-                  lost_impression_share_by_budget: 25,
-                  lost_impression_share_by_ad_rank: 35,
-                },
+                metrics: { clicks: 40, prints: 4000, cost: 20, total_amount: 200, units_quantity: 2 },
               },
             ],
           });
@@ -200,7 +196,7 @@ describe.skipIf(!url)("banco de dados", () => {
       }),
     );
     try {
-      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, dailyRows: 1, items: 1, itemsSource: "ads", insights: 1, adGroups: 1 });
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, dailyRows: 1, items: 1, itemsSource: "ads", insights: 1, roasTargets: 1 });
       expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok" }); // rodar de novo não duplica
     } finally {
       vi.unstubAllGlobals();
@@ -239,16 +235,17 @@ describe.skipIf(!url)("banco de dados", () => {
         if (u.includes("/advertising/advertisers?product_id=PADS")) return respond({ advertisers: [{ advertiser_id: 9, site_id: "MLB" }] });
         if (u.includes("/advertising/advertisers/9/product_ads/campaigns")) return respond({ message: "not found" }, 404); // caminho antigo
         if (u.includes("/product_ads/campaigns/search")) {
-          if (u.includes("impression_share")) return respond({ message: "invalid metrics" }, 400);
+          if (u.includes("impression_share")) return respond({ message: "Field IMPRESSION_SHARE not allowed" }, 400);
           return respond({ results: [{ id: 5, name: "Fones", roas_target: 4, metrics: { cost: 10, total_amount: 60 } }] });
         }
+        if (u.includes("/product_ads/campaigns/5?")) return respond({ message: "Field IMPRESSION_SHARE not allowed" }, 400);
         if (u.includes("/product_ads/ads/search")) return respond({ results: [] });
         if (u.includes("/product_ads/ad_groups/search")) return respond({ results: [] });
         return respond({ message: "inesperado " + u }, 500);
       }),
     );
     try {
-      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, insights: 0 });
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, insights: 0, roasTargets: 1 });
     } finally {
       vi.unstubAllGlobals();
     }

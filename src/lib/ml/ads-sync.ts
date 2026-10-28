@@ -14,8 +14,8 @@ export interface AdsSyncResult {
   itemsSource?: "ads" | "ad_groups" | null;
   /** Quantos campos de leilão vieram (impression_share etc.), para conferir se a API entregou. */
   insights?: number;
-  /** Grupos de anúncios encontrados no caminho novo (conferência antes do antigo ser desligado). */
-  adGroups?: number | string;
+  /** Quantas campanhas vieram com ROAS objetivo. */
+  roasTargets?: number;
   error?: string;
 }
 
@@ -51,14 +51,6 @@ export async function syncAds(accountId: string): Promise<AdsSyncResult> {
       return [];
     });
     const items = await ads.items(advertiser, from, to);
-    // Enquanto o caminho antigo funciona, confere se o novo (por grupos) responde, para trocar sem susto.
-    const adGroups =
-      ads.itemsSource === "ads"
-        ? await ads.adGroups(advertiser).then(
-            (g) => g.length,
-            (err) => (err instanceof MlApiError ? `erro ${err.status}` : "erro"),
-          )
-        : undefined;
 
     await query(
       `insert into ads_campaigns (account_id, id, name, status, strategy, budget, acos_target, roas_target, impression_share,
@@ -109,7 +101,7 @@ export async function syncAds(accountId: string): Promise<AdsSyncResult> {
         items: items ? items.length : null,
         itemsSource: ads.itemsSource,
         insights,
-        ...(adGroups !== undefined ? { adGroups } : {}),
+        roasTargets: campaigns.filter((c) => c.roasTarget !== null).length,
       },
       advertiser.advertiserId,
     );

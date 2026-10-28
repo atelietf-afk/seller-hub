@@ -177,20 +177,48 @@ export class MlAdsApi {
   }
 
   async campaigns(a: Advertiser, from: Date, to: Date): Promise<AdsCampaign[]> {
-    const load = (metrics: string) =>
-      this.paged((offset) =>
-        this.campaignPaths(a, new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics, limit: "50", offset: String(offset) })),
-      );
-    let rows: Obj[];
-    try {
-      rows = await load(`${ADS_METRICS},${ADS_INSIGHT_METRICS}`);
-    } catch (err) {
-      // Alguma métrica de leilão não aceita nesta conta/site: segue só com as básicas.
-      if (!(err instanceof MlApiError) || ![400, 404, 405].includes(err.status)) throw err;
-      console.warn("Métricas de leilão recusadas pela API de publicidade", err.message);
-      rows = await load(ADS_METRICS);
+    const rows = await this.paged((offset) =>
+      this.campaignPaths(
+        a,
+        new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics: ADS_METRICS, limit: "50", offset: String(offset) }),
+      ),
+    );
+    const campaigns = rows.filter((r) => r.id != null || r.campaign_id != null).map(parseCampaign);
+    await this.addInsights(a, campaigns, from, to);
+    return campaigns;
+  }
+
+  /**
+   * Métricas de leilão e ROAS objetivo vêm do detalhe de cada campanha (a busca de
+   * campanhas recusa impression_share). Sem elas a publicidade funciona igual, então
+   * na primeira recusa paramos de tentar e só registramos o motivo.
+   */
+  private async addInsights(a: Advertiser, campaigns: AdsCampaign[], from: Date, to: Date) {
+    const q = new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics: ADS_INSIGHT_METRICS });
+    for (const c of campaigns) {
+      let detail: Obj;
+      try {
+        detail = await this.firstWorking<Obj>([
+          `/marketplace/advertising/${a.siteId}/product_ads/campaigns/${c.id}?${q}`,
+          `/advertising/${a.siteId}/product_ads/campaigns/${c.id}?${q}`,
+        ]);
+      } catch (err) {
+        if (!(err instanceof MlApiError) || ![400, 403, 404, 405].includes(err.status)) throw err;
+        console.warn("Métricas de leilão indisponíveis na API de publicidade", err.message);
+        return;
+      }
+      const body = results(detail)[0] ?? detail; // pode vir solto ou dentro de "results"
+      const d = parseCampaign({ id: c.id, ...body });
+      c.roasTarget ??= d.roasTarget;
+      c.acosTarget ??= d.acosTarget;
+      c.budget ??= d.budget;
+      c.strategy ??= d.strategy;
+      c.impressionShare = d.impressionShare;
+      c.topImpressionShare = d.topImpressionShare;
+      c.lostByBudget = d.lostByBudget;
+      c.lostByRank = d.lostByRank;
+      c.acosBenchmark = d.acosBenchmark;
     }
-    return rows.filter((r) => r.id != null || r.campaign_id != null).map(parseCampaign);
   }
 
   /** Métricas diárias por campanha. Aceita linhas com data no topo ou listas de dias dentro da campanha. */
@@ -231,7 +259,16 @@ export class MlAdsApi {
   /** Métricas por anúncio pelos grupos: o caminho que substitui /product_ads/ads/search (desativado em 2026). */
   async itemsViaAdGroups(a: Advertiser, from: Date, to: Date): Promise<AdsItemRow[]> {
     const out: AdsItemRow[] = [];
-    for (const g of await this.adGroups(a)) {
+    const groups = await this.adGroups(a);
+    // Pode haver centenas de grupos (um por anúncio): busca 5 de cada vez.
+    let next = 0;
+    const worker = async () => {
+      while (next < groups.length) {
+        const g = groups[next++];
+        await loadGroup(g);
+      }
+    };
+    const loadGroup = async (g: { id: number; campaignId: number | null }) => {
       const rows = await this.paged((offset) => {
         const q = new URLSearchParams({ date_from: ymd(from), date_to: ymd(to), metrics: ADS_METRICS, limit: "50", offset: String(offset) });
         return [
@@ -243,7 +280,8 @@ export class MlAdsApi {
         if (r.item_id == null && r.id == null) continue;
         out.push({ itemId: String(r.item_id ?? r.id), campaignId: optNum(r.campaign_id) ?? g.campaignId, status: str(r.status), ...readMetrics(r) });
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(5, groups.length) }, worker));
     return out;
   }
 
