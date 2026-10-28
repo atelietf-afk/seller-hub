@@ -57,7 +57,8 @@ export async function GET(request: Request) {
   await query("insert into seller_settings (owner_id) values ($1) on conflict do nothing", [session.user.id]);
 
   // Primeira sincronização roda depois de responder, para o vendedor não esperar.
-  console.info("Conta do ML conectada", account.id, me.nickname);
+  // O scope mostra o que o ML de fato concedeu (ex.: escrita de publicidade); não é segredo.
+  console.info("Conta do ML conectada", account.id, me.nickname, `scope: ${tokens.scope ?? "(não informado)"}`);
   after(() => syncAccount(account.id).catch((err) => console.error("Primeira sincronização falhou", err)));
   return NextResponse.redirect(new URL("/dashboard?conectado=1", request.url));
 }
