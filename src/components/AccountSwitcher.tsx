@@ -2,14 +2,12 @@
 
 import { selectAccount } from "@/app/actions";
 
-const LABEL = { mercadolivre: "Mercado Livre", shopee: "Shopee" } as const;
-
 // Troca a conta que as telas mostram (cada marketplace conectado é uma conta).
 export function AccountSwitcher({
   accounts,
   current,
 }: {
-  accounts: { id: string; marketplace: keyof typeof LABEL; nickname: string | null }[];
+  accounts: { id: string; label: string }[];
   current: string;
 }) {
   return (
@@ -26,7 +24,7 @@ export function AccountSwitcher({
       >
         {accounts.map((a) => (
           <option key={a.id} value={a.id}>
-            {LABEL[a.marketplace]}: {a.nickname ?? "loja"}
+            {a.label}
           </option>
         ))}
       </select>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { signOut } from "../actions";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
+import { ROLE_LABEL } from "@/lib/analytics/team";
 import { currentAccount } from "@/lib/session";
 
 const NAV = [
@@ -14,7 +15,9 @@ const NAV = [
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, account, accounts } = await currentAccount();
+  const { user, account, accounts, role, ownerEmails } = await currentAccount();
+  const label = (a: (typeof accounts)[number]) =>
+    `${a.marketplace === "shopee" ? "Shopee" : "ML"}: ${a.nickname ?? "loja"}${a.owner_id !== user.id ? ` · equipe de ${ownerEmails.get(a.owner_id) ?? "outro usuário"}` : ""}`;
   return (
     <div className="min-h-screen">
       <header className="no-print border-b border-line bg-surface">
@@ -31,12 +34,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm text-muted">
             {account && accounts.length > 1 ? (
-              <AccountSwitcher accounts={accounts} current={account.id} />
+              <AccountSwitcher accounts={accounts.map((a) => ({ id: a.id, label: label(a) }))} current={account.id} />
             ) : (
-              <span className="hidden sm:inline">
-                {account ? `${account.marketplace === "shopee" ? "Shopee" : "ML"}: ${account.nickname}` : user.email}
-              </span>
+              <span className="hidden sm:inline">{account ? label(account) : user.email}</span>
             )}
+            {role !== "dono" && <span className="rounded bg-bg px-1.5 py-0.5 text-xs">{ROLE_LABEL[role]}</span>}
             <form action={signOut}>
               <button className="hover:text-ink">Sair</button>
             </form>

@@ -18,6 +18,7 @@ const ERRORS: Record<string, string> = {
   sync: "Não conseguimos sincronizar com o Mercado Livre agora. Tente de novo em alguns minutos.",
   resumo: "Não conseguimos gerar a análise agora. Confira a chave da Anthropic e tente de novo.",
   "sem-conexao": "A conexão com o Mercado Livre não foi concluída. Clique em Reconectar.",
+  "sem-permissao": "Seu perfil na equipe não permite essa ação. Fale com o dono da loja.",
 };
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ conectado?: string; erro?: string }> }) {

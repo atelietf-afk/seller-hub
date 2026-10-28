@@ -10,10 +10,10 @@ import { currentAccount } from "@/lib/session";
 const KIND = { weekly: "Semanal", monthly: "Mensal" } as const;
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ erro?: string }> }) {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await currentAccount();
   if (!account) return <NoAccount />;
   const { erro } = await searchParams;
-  const reports = await listReports(user.id, account.id);
+  const reports = await listReports(ownerId, account.id);
 
   return (
     <div className="space-y-4">

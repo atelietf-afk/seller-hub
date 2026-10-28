@@ -28,12 +28,12 @@ export default async function ReportPage({
   params: Promise<{ kind: string; start: string }>;
   searchParams: Promise<{ whatsapp?: string }>;
 }) {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await currentAccount();
   if (!account) return <NoAccount />;
   const { kind, start } = await params;
   const whatsapp = WHATSAPP_MSG[(await searchParams).whatsapp ?? ""];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || (kind !== "weekly" && kind !== "monthly")) notFound();
-  const report = await getReport(user.id, account.id, kind, start);
+  const report = await getReport(ownerId, account.id, kind, start);
   if (!report) notFound();
   const { data: d, ai } = report;
   const t = d.totals;

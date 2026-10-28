@@ -6,6 +6,16 @@ import type { EventRow, MlAccount, SellerSettings } from "./types";
 // Acesso aos dados do vendedor. Funções que recebem ownerId só tocam no que é
 // desse usuário; as que recebem só accountId são para uso interno (sync, webhooks, cron).
 
+/** Contas de vários donos (o próprio e os espaços em que a pessoa é da equipe). */
+export function accountsOfOwners(ownerIds: string[]) {
+  return query<MlAccount>(
+    `select a.*, (exists (select 1 from ml_tokens t where t.account_id = a.id)
+                 or exists (select 1 from shopee_tokens s where s.account_id = a.id)) as connected
+     from ml_accounts a where a.owner_id = any($1::text[]) order by a.created_at`,
+    [ownerIds],
+  );
+}
+
 export function accountsOf(ownerId: string) {
   return query<MlAccount>(
     `select a.*, (exists (select 1 from ml_tokens t where t.account_id = a.id)

@@ -23,7 +23,10 @@ import { saveCompetitorSnapshot } from "@/lib/ml/spy-sync";
 import { apiFor } from "@/lib/ml/tokens";
 import { parseMoney } from "@/lib/format";
 import { syncAnyAccount } from "@/lib/sync";
-import { ACCOUNT_COOKIE, currentAccount, currentUser } from "@/lib/session";
+import { ACCOUNT_COOKIE, currentAccount, currentUser, INVITE_COOKIE, requirePermission } from "@/lib/session";
+import { isMemberRole, normalizeEmail, validEmail, type Permission } from "@/lib/analytics/team";
+import * as teamData from "@/lib/data/team";
+import { safeNext } from "@/lib/next-path";
 import { createDailySummary } from "@/lib/summaries";
 import * as adsData from "@/lib/data/ads";
 import { parseBudget, parseRoas } from "@/lib/analytics/ad-changes";
@@ -39,15 +42,22 @@ const credentials = (formData: FormData) => ({
   password: String(formData.get("password") ?? ""),
 });
 
+/** Volta do login: para o convite que a pessoa abriu, se houver; senão, o painel. */
+const afterLogin = (formData: FormData) => safeNext(formData.get("next")) ?? "/dashboard";
+const loginError = (formData: FormData, erro: string) => {
+  const next = safeNext(formData.get("next"));
+  return `/login?erro=${encodeURIComponent(erro)}${next ? `&next=${encodeURIComponent(next)}` : ""}`;
+};
+
 export async function signIn(formData: FormData) {
   try {
     await auth.api.signInEmail({ body: credentials(formData), headers: await headers() });
   } catch (err) {
-    if (err instanceof APIError) redirect("/login?erro=credenciais");
+    if (err instanceof APIError) redirect(loginError(formData, "credenciais"));
     console.error("Falha no login", err);
-    redirect("/login?erro=indisponivel");
+    redirect(loginError(formData, "indisponivel"));
   }
-  redirect("/dashboard");
+  redirect(afterLogin(formData));
 }
 
 export async function signUp(formData: FormData) {
@@ -55,11 +65,11 @@ export async function signUp(formData: FormData) {
   try {
     await auth.api.signUpEmail({ body: { email, password, name: email.split("@")[0] }, headers: await headers() });
   } catch (err) {
-    if (err instanceof APIError) redirect(`/login?erro=${encodeURIComponent(err.message)}`);
+    if (err instanceof APIError) redirect(loginError(formData, err.message));
     console.error("Falha no cadastro", err);
-    redirect("/login?erro=indisponivel");
+    redirect(loginError(formData, "indisponivel"));
   }
-  redirect("/dashboard");
+  redirect(afterLogin(formData));
 }
 
 export async function signOut() {
@@ -69,9 +79,12 @@ export async function signOut() {
 
 // Painel ------------------------------------------------------------------
 
-/** Conta do ML do usuário logado (currentAccount já filtra pelo dono). */
-async function ownAccount() {
-  const { account } = await currentAccount();
+/**
+ * Conta escolhida, se o perfil da pessoa permitir a ação (currentAccount já filtra pelo
+ * dono). Por padrão exige poder operar: quem é só leitura não muda nada.
+ */
+async function ownAccount(permission: Permission = "operar") {
+  const { account } = await requirePermission(permission);
   if (!account) redirect("/configuracoes");
   return account;
 }
@@ -100,23 +113,23 @@ export async function summarizeNow() {
 }
 
 export async function markEventsRead() {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await requirePermission("operar");
   if (!account) return;
-  await data.markEventsRead(user.id, account.id);
+  await data.markEventsRead(ownerId, account.id);
   revalidatePath("/dashboard");
 }
 
 const money = (v: FormDataEntryValue | null) => parseMoney(String(v ?? "")) ?? 0;
 
 export async function saveCost(formData: FormData) {
-  const user = await currentUser();
-  await data.setItemCost(user.id, String(formData.get("itemId")), money(formData.get("unitCost")), money(formData.get("extraCost")));
+  const { ownerId } = await requirePermission("operar");
+  await data.setItemCost(ownerId, String(formData.get("itemId")), money(formData.get("unitCost")), money(formData.get("extraCost")));
   revalidatePath("/produtos");
   revalidatePath("/dashboard");
 }
 
 export async function saveSettings(formData: FormData) {
-  const user = await currentUser();
+  const { ownerId } = await requirePermission("gerenciar");
   const pct = (name: string, fallback: number) => {
     const n = parseMoney(String(formData.get(name) ?? ""));
     return n !== null && n <= 100 ? n / 100 : fallback;
@@ -131,7 +144,7 @@ export async function saveSettings(formData: FormData) {
   const whatsappPhone = phoneInput ? normalizeWhatsappPhone(phoneInput) : null;
   if (phoneInput && !whatsappPhone) redirect("/configuracoes?ml=whatsapp-invalido");
   await data.saveSettings({
-    owner_id: user.id,
+    owner_id: ownerId,
     tax_rate: pct("taxRate", 0.06),
     visits_drop_alert: pct("visitsDrop", 0.3),
     min_margin: pct("minMargin", 0.1),
@@ -143,7 +156,8 @@ export async function saveSettings(formData: FormData) {
 }
 
 export async function disconnectAccount(formData: FormData) {
-  const user = await currentUser();
+  // Só o dono, e só as próprias contas.
+  const { user } = await requirePermission("dono");
   await data.unlinkAccount(user.id, String(formData.get("accountId")));
   revalidatePath("/", "layout");
 }
@@ -177,16 +191,16 @@ export async function addCompetitor(formData: FormData) {
 }
 
 export async function removeCompetitor(formData: FormData) {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await requirePermission("operar");
   if (!account) return;
-  await spyData.removeCompetitor(user.id, account.id, String(formData.get("itemId")));
+  await spyData.removeCompetitor(ownerId, account.id, String(formData.get("itemId")));
   revalidatePath("/espiao");
 }
 
 export async function suggestItemTitles(formData: FormData) {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await requirePermission("operar");
   if (!account) redirect("/configuracoes");
-  const item = await spyData.ownItem(user.id, account.id, String(formData.get("itemId")));
+  const item = await spyData.ownItem(ownerId, account.id, String(formData.get("itemId")));
   if (!item) redirect("/espiao");
 
   let ok = false;
@@ -252,7 +266,7 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message.slice(0,
 const backToAds = (acao: string, anchor = "campanhas") => redirect(`/publicidade?acao=${acao}#${anchor}`);
 
 export async function updateCampaignAction(formData: FormData) {
-  const account = await ownAccount();
+  const account = await ownAccount("gerenciar");
   if (!adsWriteEnabled()) return backToAds("permissao");
   const field = String(formData.get("field"));
   const raw = String(formData.get("value") ?? "");
@@ -318,7 +332,7 @@ export async function updateCampaignAction(formData: FormData) {
 }
 
 export async function createSuggestedCampaignAction(formData: FormData) {
-  const account = await ownAccount();
+  const account = await ownAccount("gerenciar");
   if (!adsWriteEnabled()) return backToAds("permissao", "sugestoes");
   const kind = String(formData.get("kind")) as SuggestionKind;
   if (!(kind in KINDS)) return backToAds("valor-invalido", "sugestoes");
@@ -443,6 +457,51 @@ export async function selectAccount(formData: FormData) {
   if (accounts.some((a) => a.id === id)) {
     (await cookies()).set(ACCOUNT_COOKIE, id, { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 60 * 60 * 24 * 365 });
   }
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
+}
+
+// Equipe ------------------------------------------------------------------------
+
+export async function inviteMember(formData: FormData) {
+  const { user } = await requirePermission("dono");
+  const email = String(formData.get("email") ?? "");
+  const role = formData.get("role");
+  if (!validEmail(email) || !isMemberRole(role)) redirect("/configuracoes?equipe=invalido#equipe");
+  if (normalizeEmail(email) === normalizeEmail(user.email)) redirect("/configuracoes?equipe=proprio#equipe");
+  const token = await teamData.createInvite(user.id, email, role);
+  (await cookies()).set(INVITE_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: true, path: "/configuracoes", maxAge: 120 });
+  revalidatePath("/configuracoes");
+  redirect("/configuracoes?equipe=convidado#equipe");
+}
+
+export async function revokeInviteAction(formData: FormData) {
+  const { user } = await requirePermission("dono");
+  await teamData.revokeInvite(user.id, String(formData.get("invite") ?? ""));
+  revalidatePath("/configuracoes");
+}
+
+export async function changeMemberRole(formData: FormData) {
+  const { user } = await requirePermission("dono");
+  const role = formData.get("role");
+  if (isMemberRole(role)) await teamData.setMemberRole(user.id, String(formData.get("userId") ?? ""), role);
+  revalidatePath("/configuracoes");
+}
+
+export async function removeMemberAction(formData: FormData) {
+  const { user } = await requirePermission("dono");
+  await teamData.removeMember(user.id, String(formData.get("userId") ?? ""));
+  revalidatePath("/configuracoes");
+}
+
+export async function acceptInviteAction(formData: FormData) {
+  const user = await currentUser();
+  const token = String(formData.get("token") ?? "");
+  const { result, ownerId } = await teamData.acceptInvite(token, { id: user.id, email: user.email });
+  if (result !== "ok") redirect(`/convite/${encodeURIComponent(token)}?erro=${result}`);
+  // Abre direto na primeira loja do dono que convidou.
+  const first = (await data.accountsOf(ownerId!))[0];
+  if (first) (await cookies()).set(ACCOUNT_COOKIE, first.id, { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 60 * 60 * 24 * 365 });
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }

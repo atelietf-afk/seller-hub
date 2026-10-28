@@ -28,6 +28,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let adsData: typeof import("@/lib/data/ads");
   let shopeeSync: typeof import("@/lib/shopee/sync");
   let shopeeTokens: typeof import("@/lib/shopee/tokens");
+  let team: typeof import("@/lib/data/team");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -60,6 +61,7 @@ describe.skipIf(!url)("banco de dados", () => {
     adsData = await import("@/lib/data/ads");
     shopeeSync = await import("@/lib/shopee/sync");
     shopeeTokens = await import("@/lib/shopee/tokens");
+    team = await import("@/lib/data/team");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -749,6 +751,50 @@ describe.skipIf(!url)("banco de dados", () => {
     const r = await report.buildReport(shop.id, A, 7);
     expect(r.totals).toMatchObject({ revenue: 80, orders: 1, fees: 16 });
     await db.query("delete from ml_accounts where id = $1", [shop.id]);
+  });
+
+  it("equipe: convite só para o e-mail convidado, uma vez, e acesso só às lojas de quem convidou", async () => {
+    const a = { id: A, email: "a@x.com" };
+    const b = { id: B, email: "b@x.com" };
+    const token = await team.createInvite(A, " B@X.com ", "operador");
+    expect((await team.pendingInvites(A)).map((i) => [i.email, i.role])).toEqual([["b@x.com", "operador"]]);
+    expect(await team.pendingInvites(B)).toEqual([]);
+    expect(await team.inviteByToken(token)).toMatchObject({ owner_email: "a@x.com", email: "b@x.com", role: "operador" });
+    expect(await team.inviteByToken("codigo-inventado")).toBeNull();
+
+    expect((await team.acceptInvite(token, a)).result).toBe("outro-email"); // o próprio dono não aceita
+    expect((await team.acceptInvite("codigo-inventado", b)).result).toBe("invalido");
+    expect(await team.acceptInvite(token, b)).toEqual({ result: "ok", ownerId: A });
+    expect((await team.acceptInvite(token, b)).result).toBe("usado");
+    expect(await team.pendingInvites(A)).toEqual([]);
+
+    expect(await team.membershipsOf(B)).toEqual([{ owner_id: A, role: "operador", owner_email: "a@x.com" }]);
+    expect(await team.membershipsOf(A)).toEqual([]);
+    expect((await team.teamOf(A)).map((m) => [m.email, m.role])).toEqual([["b@x.com", "operador"]]);
+    // B vê as próprias lojas e as de A; A continua vendo só as dele
+    const ids = (await data.accountsOfOwners([B, A])).map((x) => x.id);
+    expect(ids).toEqual(expect.arrayContaining([accA, accB]));
+    expect((await data.accountsOfOwners([A])).map((x) => x.id)).not.toContain(accB);
+
+    await team.setMemberRole(B, B, "gerente"); // B não é dono de equipe nenhuma: nada muda
+    await team.setMemberRole(A, B, "gerente");
+    expect((await team.membershipsOf(B))[0].role).toBe("gerente");
+
+    // convite vencido e cancelado
+    const old = await team.createInvite(A, "c@x.com", "leitura");
+    await db.query("update team_invites set expires_at = now() - interval '1 minute' where email = 'c@x.com'");
+    expect((await team.acceptInvite(old, { id: "user-c", email: "c@x.com" })).result).toBe("expirado");
+    const revoked = await team.createInvite(A, "d@x.com", "leitura");
+    const [{ token_hash }] = await team.pendingInvites(A);
+    await team.revokeInvite(B, token_hash); // só o dono cancela
+    expect(await team.pendingInvites(A)).toHaveLength(1);
+    await team.revokeInvite(A, token_hash);
+    expect((await team.acceptInvite(revoked, { id: "user-d", email: "d@x.com" })).result).toBe("invalido");
+
+    await team.removeMember(B, B); // ninguém se remove da equipe dos outros pelo lado errado
+    expect(await team.membershipsOf(B)).toHaveLength(1);
+    await team.removeMember(A, B);
+    expect(await team.membershipsOf(B)).toEqual([]);
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {

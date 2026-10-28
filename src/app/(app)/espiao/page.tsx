@@ -24,12 +24,12 @@ const ERRORS: Record<string, string> = {
 };
 
 export default async function SpyPage({ searchParams }: { searchParams: Promise<{ aba?: string; erro?: string }> }) {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await currentAccount();
   if (!account) return <NoAccount />;
   if (account.marketplace !== "mercadolivre") return <OnlyMercadoLivre feature="Espião" />;
   const { aba, erro } = await searchParams;
   const tab = TABS.find((t) => t.id === aba)?.id ?? "palavras";
-  const status = await spyStatus(user.id, account.id);
+  const status = await spyStatus(ownerId, account.id);
   const r = status?.spy_result;
 
   return (
@@ -73,10 +73,10 @@ export default async function SpyPage({ searchParams }: { searchParams: Promise<
       </nav>
       {erro && ERRORS[erro] && <p className="rounded-md bg-critical/10 p-3 text-sm text-critical">{ERRORS[erro]}</p>}
 
-      {tab === "palavras" && <KeywordsTab ownerId={user.id} accountId={account.id} />}
-      {tab === "mais-vendidos" && <BestSellersTab ownerId={user.id} accountId={account.id} mlUserId={Number(account.ml_user_id)} />}
-      {tab === "catalogo" && <CatalogTab ownerId={user.id} accountId={account.id} />}
-      {tab === "concorrentes" && <CompetitorsTab ownerId={user.id} accountId={account.id} />}
+      {tab === "palavras" && <KeywordsTab ownerId={ownerId} accountId={account.id} />}
+      {tab === "mais-vendidos" && <BestSellersTab ownerId={ownerId} accountId={account.id} mlUserId={Number(account.ml_user_id)} />}
+      {tab === "catalogo" && <CatalogTab ownerId={ownerId} accountId={account.id} />}
+      {tab === "concorrentes" && <CompetitorsTab ownerId={ownerId} accountId={account.id} />}
     </div>
   );
 }

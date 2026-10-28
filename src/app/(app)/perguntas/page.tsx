@@ -36,14 +36,14 @@ function waited(iso: string) {
 }
 
 export default async function QuestionsPage({ searchParams }: { searchParams: Promise<{ erro?: string; q?: string; enviada?: string }> }) {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await currentAccount();
   if (!account) return <NoAccount />;
   if (account.marketplace !== "mercadolivre") return <OnlyMercadoLivre feature="Perguntas com IA" />;
   const { erro, q: errQ, enviada } = await searchParams;
   const [pending, answered, settings] = await Promise.all([
-    pendingQuestions(user.id, account.id),
-    recentlyAnswered(user.id, account.id),
-    settingsOf(user.id),
+    pendingQuestions(ownerId, account.id),
+    recentlyAnswered(ownerId, account.id),
+    settingsOf(ownerId),
   ]);
   const withoutDraft = pending.filter((q) => !q.draft).length;
 

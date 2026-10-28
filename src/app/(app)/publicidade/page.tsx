@@ -74,14 +74,14 @@ const opt = (n: number | null, f: (n: number) => string) => (n === null ? "—" 
 const roas = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}x`;
 
 export default async function AdsPage({ searchParams }: { searchParams: Promise<{ decisao?: string; acao?: string }> }) {
-  const { user, account } = await currentAccount();
+  const { ownerId, account } = await currentAccount();
   if (!account) return <NoAccount />;
   if (account.marketplace !== "mercadolivre") return <OnlyMercadoLivre feature="Publicidade" />;
   const [r, settings, history, existing] = await Promise.all([
-    buildAdsReport(user.id, account.id),
-    settingsOf(user.id),
-    adsChanges(user.id, account.id),
-    campaignNames(user.id, account.id),
+    buildAdsReport(ownerId, account.id),
+    settingsOf(ownerId),
+    adsChanges(ownerId, account.id),
+    campaignNames(ownerId, account.id),
   ]);
   if (!r) return <NoAccount />;
   const { decisao: requested, acao } = await searchParams;

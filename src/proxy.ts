@@ -19,7 +19,8 @@ export function proxy(request: NextRequest) {
   if (PUBLIC_PATHS.some((p) => path.startsWith(p)) || getSessionCookie(request)) return NextResponse.next();
   const url = request.nextUrl.clone();
   url.pathname = "/login";
-  url.search = "";
+  // Convite aberto sem login: volta para ele depois de entrar ou criar a conta.
+  url.search = path.startsWith("/convite/") ? `?next=${encodeURIComponent(path)}` : "";
   return NextResponse.redirect(url);
 }
 
