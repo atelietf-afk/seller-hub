@@ -223,6 +223,10 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(codes).toEqual(expect.arrayContaining(["target_below_break_even", "budget_limited", "rank_limited"]));
     expect(c.diagnoses.find((d) => d.code === "budget_limited")?.suggest?.budget).toBe(50); // 30 × (0,4 + 0,25) / 0,4 = 48,75
 
+    // Sugestões: MLBA1 já anunciado vendeu só 2 (não é campeão); MLBA2 fora de campanha e sem custo
+    expect(r.suggestions.suggestions).toEqual([]);
+    expect(r.suggestions.skipped.noCost).toBe(1);
+
     expect(await adsReport.buildAdsReport(B, accA)).toBeNull();
   });
 

@@ -10,9 +10,14 @@ import {
   type AdsTotals,
   type CampaignDiagnosis,
 } from "./analytics/ads";
+import { estimatedMargin, suggestCampaigns, type SuggestionItem, type SuggestionResult } from "./analytics/ad-suggestions";
+import { settingsOf } from "./data/accounts";
 import { adsData, type AdsAccountStatus, type AdsCampaignRow, type AdsItemMetricsRow } from "./data/ads";
 import { ADS_PERIOD_DAYS } from "./ml/ads-sync";
 import { buildReport } from "./report";
+
+/** Histórico usado para margem e giro nas sugestões (o backfill de pedidos chega a 120 dias). */
+const SUGGESTION_HISTORY_DAYS = 120;
 
 export interface AdsReport {
   periodDays: number;
@@ -44,13 +49,19 @@ export interface AdsReport {
         suggestRoasTarget: number | null;
       })[]
     | null;
+  /** Campanhas novas sugeridas, com os valores para preencher. */
+  suggestions: SuggestionResult;
 }
 
 /** Publicidade dos últimos 30 dias cruzada com o lucro real das vendas. */
 export async function buildAdsReport(ownerId: string, accountId: string): Promise<AdsReport | null> {
   const data = await adsData(ownerId, accountId, ADS_PERIOD_DAYS);
   if (!data) return null;
-  const sales = await buildReport(accountId, ownerId, ADS_PERIOD_DAYS);
+  const [sales, history, settings] = await Promise.all([
+    buildReport(accountId, ownerId, ADS_PERIOD_DAYS),
+    buildReport(accountId, ownerId, SUGGESTION_HISTORY_DAYS),
+    settingsOf(ownerId),
+  ]);
 
   const totals = adsTotals(data.campaigns);
   const marginKnown = sales.missingCosts === 0 && sales.totals.revenue > 0;
@@ -94,6 +105,42 @@ export async function buildAdsReport(ownerId: string, accountId: string): Promis
   };
   const weeks = new Map(data.weeks.map((w) => [Number(w.campaign_id), w]));
 
+  // Sugestões: margem real dos 120 dias quando houve venda; senão, estimada pelo preço, custo e taxas médias.
+  const h = history.totals;
+  const rates = {
+    fee: h.revenue > 0 ? h.fees / h.revenue : 0.14,
+    shipping: h.revenue > 0 ? h.shipping / h.revenue : 0,
+    tax: settings.tax_rate,
+  };
+  const campaignName = new Map(data.campaigns.map((c) => [Number(c.id), c.name]));
+  const adByItem = new Map(items.map((i) => [i.item_id, i]));
+  const hiddenGems = new Set(sales.funnel.filter((f) => f.diagnoses.some((d) => d.code === "hidden_gem")).map((f) => f.itemId));
+  const candidates: SuggestionItem[] = history.funnel.map((f) => {
+    const real = f.unitCost && f.revenue > 0 ? f.profit / f.revenue : null;
+    const ad = adByItem.get(f.itemId);
+    return {
+      itemId: f.itemId,
+      title: f.title,
+      thumbnail: f.thumbnail,
+      price: f.price,
+      status: f.status,
+      stock: f.stock,
+      margin: real ?? (f.unitCost ? estimatedMargin(f.price, f.unitCost, rates) : null),
+      marginEstimated: real === null,
+      units: f.units,
+      hiddenGem: hiddenGems.has(f.itemId),
+      listedAt: data.listedAt.get(f.itemId) ?? null,
+      campaignName: ad ? (campaignName.get(Number(ad.campaign_id)) ?? "outra campanha") : null,
+      adDecision: ad?.decision ?? null,
+    };
+  });
+  const suggestions = suggestCampaigns(candidates, {
+    now: new Date(),
+    minMargin: settings.min_margin,
+    cpc: totals.cpc,
+    historyDays: SUGGESTION_HISTORY_DAYS,
+  });
+
   return {
     periodDays: ADS_PERIOD_DAYS,
     status: data.status,
@@ -130,5 +177,6 @@ export async function buildAdsReport(ownerId: string, accountId: string): Promis
       };
     }),
     items: data.status.ads_status === "ok" && data.items.length === 0 && data.campaigns.length > 0 ? null : items,
+    suggestions,
   };
 }

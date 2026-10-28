@@ -1,12 +1,14 @@
 import { Fragment } from "react";
 import { syncNow } from "../../actions";
 import { NoAccount } from "../NoAccount";
+import { AdSuggestions } from "@/components/AdSuggestions";
 import { AdsChart } from "@/components/AdsChart";
 import { Kpi } from "@/components/Kpi";
 import { SeverityBadge } from "@/components/Severity";
 import { SubmitButton } from "@/components/SubmitButton";
 import type { AdDecision, AdsTotals, CampaignDiagnosis } from "@/lib/analytics/ads";
 import { buildAdsReport } from "@/lib/ads-report";
+import { settingsOf } from "@/lib/data/accounts";
 import { brl, dateTime, int, pct } from "@/lib/format";
 import { currentAccount } from "@/lib/session";
 
@@ -42,7 +44,7 @@ const roas = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits
 export default async function AdsPage() {
   const { user, account } = await currentAccount();
   if (!account) return <NoAccount />;
-  const r = await buildAdsReport(user.id, account.id);
+  const [r, settings] = await Promise.all([buildAdsReport(user.id, account.id), settingsOf(user.id)]);
   if (!r) return <NoAccount />;
   const t = r.totals;
   const status = r.status.ads_status;
@@ -171,6 +173,8 @@ export default async function AdsPage() {
           {!r.campaigns.length && <p className="p-6 text-center text-sm text-ink-2">Nenhuma campanha encontrada.</p>}
         </div>
       </section>
+
+      {status === "ok" && <AdSuggestions result={r.suggestions} minMargin={settings.min_margin} />}
 
       <section className="rounded-xl border border-line bg-surface">
         <h2 className="p-4 pb-0 font-semibold">Produtos anunciados</h2>

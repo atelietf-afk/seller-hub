@@ -40,6 +40,8 @@ export interface MlItem {
   catalog_product_id?: string | null;
   pictures?: { id: string }[];
   seller_id?: number;
+  date_created?: string;
+  start_time?: string;
 }
 
 export interface MlOrder {

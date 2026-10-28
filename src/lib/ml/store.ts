@@ -24,6 +24,7 @@ export function itemRow(accountId: string, i: MlItem) {
     catalog_listing: i.catalog_listing ?? false,
     catalog_product_id: i.catalog_product_id ?? null,
     pictures_count: i.pictures ? i.pictures.length : null,
+    listed_at: i.date_created ?? i.start_time ?? null,
     updated_at: new Date().toISOString(),
   };
 }

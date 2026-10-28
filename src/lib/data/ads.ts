@@ -70,7 +70,7 @@ export async function adsData(ownerId: string, accountId: string, days: number) 
     [accountId, ownerId],
   );
   if (!status) return null;
-  const [campaigns, daily, items, weeks] = await Promise.all([
+  const [campaigns, daily, items, weeks, listed] = await Promise.all([
     query<AdsCampaignRow>("select * from ads_campaigns where account_id = $1 order by cost desc, name", [accountId]),
     query<AdsDayRow>(
       `select day, sum(clicks)::int as clicks, sum(prints)::int as prints, sum(cost) as cost, sum(revenue) as revenue,
@@ -99,6 +99,7 @@ export async function adsData(ownerId: string, accountId: string, days: number) 
        group by campaign_id`,
       [accountId],
     ),
+    query<{ id: string; listed_at: string | null }>("select id, listed_at from items where account_id = $1", [accountId]),
   ]);
-  return { status, campaigns, daily, items, weeks };
+  return { status, campaigns, daily, items, weeks, listedAt: new Map(listed.map((l) => [l.id, l.listed_at])) };
 }
