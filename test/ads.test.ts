@@ -124,7 +124,13 @@ describe("diagnoseCampaign", () => {
   it("perde por classificação com ROAS objetivo exigente demais: sugere baixar até o que ainda dá lucro", () => {
     const d = diagnoseCampaign(camp({ roasTarget: 10, lostByRank: 0.5 }));
     expect(d.find((x) => x.code === "rank_limited")).toMatchObject({ suggest: { roasTarget: 5.5 } });
-    expect(diagnoseCampaign(camp({ roasTarget: 5.5, lostByRank: 0.5 })).find((x) => x.code === "rank_limited")?.suggest).toBeUndefined();
+    // Já no sugerido: propõe um teste mais agressivo que ainda dá lucro (1 / (0,3 × 0,85) = 3,9 → 4x)
+    const atSuggested = diagnoseCampaign(camp({ roasTarget: 5.5, lostByRank: 0.5 })).find((x) => x.code === "rank_limited")!;
+    expect(atSuggested.suggest).toEqual({ roasTarget: 4 });
+    expect(atSuggested.message).toContain("teste 4x por 14 dias");
+    // Já agressivo ou sem margem: só melhorar os anúncios
+    expect(diagnoseCampaign(camp({ roasTarget: 3.5, lostByRank: 0.5 })).find((x) => x.code === "rank_limited")?.suggest).toBeUndefined();
+    expect(diagnoseCampaign(camp({ margin: null, lostByRank: 0.5 })).find((x) => x.code === "rank_limited")?.suggest).toBeUndefined();
   });
 
   it("gasto sem venda: crítico se ativa, aviso se já pausada", () => {

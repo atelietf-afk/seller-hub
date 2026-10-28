@@ -64,6 +64,8 @@ export const ROAS_MIN = 1;
 export const ROAS_MAX = 35;
 /** Fração da margem que pode ir para o anúncio no ROAS sugerido (regra de mercado: 60–70%). */
 export const SAFE_MARGIN_SHARE = 0.65;
+/** Fatia da margem num teste para ganhar exibição (ainda acima do equilíbrio). */
+export const AGGRESSIVE_MARGIN_SHARE = 0.85;
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const x = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}x`;
@@ -164,14 +166,20 @@ export function diagnoseCampaign(c: CampaignInput): CampaignDiagnosis[] {
     }
   }
   if (c.status === "active" && (c.lostByRank ?? 0) >= 0.3) {
+    const lost = pct(c.lostByRank!);
     const tooStrict = c.roasTarget !== null && sug !== null && c.roasTarget > sug * 1.15;
+    // Teste mais agressivo: até 85% da margem no anúncio, ainda acima do equilíbrio.
+    const test = suggestedRoasTarget(c.margin, AGGRESSIVE_MARGIN_SHARE);
+    const canTest = !tooStrict && c.roasTarget !== null && test !== null && be !== null && test < c.roasTarget;
     out.push({
       code: "rank_limited",
       severity: "warning",
       message: tooStrict
-        ? `Perde ${pct(c.lostByRank!)} das exibições por classificação: o ROAS objetivo de ${x(c.roasTarget!)} é mais exigente que o necessário. ${x(sug!)} ainda dá lucro e deve aparecer mais.`
-        : `Perde ${pct(c.lostByRank!)} das exibições por classificação no leilão. Melhore preço, fotos e frete grátis dos anúncios${sug ? `, ou aceite um ROAS objetivo menor (mínimo ${x(sug)} para manter lucro)` : ""}.`,
-      suggest: tooStrict ? { roasTarget: sug! } : undefined,
+        ? `Perde ${lost} das exibições por classificação: o ROAS objetivo de ${x(c.roasTarget!)} é mais exigente que o necessário. ${x(sug!)} ainda dá lucro e deve aparecer mais.`
+        : canTest
+          ? `Perde ${lost} das exibições por classificação no leilão. Seu ROAS objetivo (${x(c.roasTarget!)}) já deixa boa margem: para aparecer mais, teste ${x(test!)} por 14 dias (ainda acima do equilíbrio de ${x(be!)}, com lucro menor por venda) e melhore foto principal, preço e frete grátis dos anúncios.`
+          : `Perde ${lost} das exibições por classificação no leilão. Melhore foto principal, preço e frete grátis dos anúncios para ganhar posição.`,
+      suggest: tooStrict ? { roasTarget: sug! } : canTest ? { roasTarget: test! } : undefined,
     });
   }
   if (t.acos !== null && c.acosBenchmark && t.acos > c.acosBenchmark * 1.3 && c.cost >= 30) {
