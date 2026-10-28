@@ -280,18 +280,28 @@ export class MlAdsApi {
     return id != null ? num(id) : null;
   }
 
-  /** Tenta o próximo caminho só quando o anterior não existe (404/405); outros erros sobem. */
+  /**
+   * Tenta o próximo caminho quando o anterior não existe (404/405) ou recusa a escrita
+   * (401/403): a escrita pode estar liberada só num dos prefixos. Recusa garante que
+   * nada foi alterado, então tentar de novo é seguro. Outros erros sobem na hora.
+   */
   private async firstWritable<T>(method: "PUT" | "POST", paths: string[], body: unknown): Promise<T> {
-    let last: unknown;
+    let best: MlApiError | undefined;
+    const refused: string[] = [];
     for (const path of paths) {
       try {
-        return await this.api.send<T>(method, path, body, { headers: { "api-version": "2" } });
+        const result = await this.api.send<T>(method, path, body, { headers: { "api-version": "2" } });
+        if (best) console.info("Escrita de publicidade aceita no caminho alternativo", method, path);
+        return result;
       } catch (err) {
-        last = err;
-        if (!(err instanceof MlApiError) || ![404, 405].includes(err.status)) throw err;
+        if (!(err instanceof MlApiError) || ![401, 403, 404, 405].includes(err.status)) throw err;
+        refused.push(err.message);
+        // Guarda o erro mais útil: recusa de permissão diz mais que "caminho não existe".
+        if (!best || (best.status >= 404 && err.status < 404)) best = err;
       }
     }
-    throw last;
+    console.warn("Escrita de publicidade recusada em todos os caminhos", method, refused.join(" | "));
+    throw best;
   }
 
   /** De onde vieram as métricas por anúncio na última chamada a items() (para diagnóstico). */

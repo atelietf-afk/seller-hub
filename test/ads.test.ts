@@ -202,9 +202,19 @@ describe("escrita em campanhas", () => {
       "https://api.mercadolibre.com/marketplace/advertising/MLB/product_ads/campaigns/5",
       "https://api.mercadolibre.com/advertising/MLB/product_ads/campaigns/5",
     ]);
-    const denied = recorder([new Response("forbidden", { status: 403 })]);
-    await expect(denied.ads.updateCampaign(adv, 5, { budget: 10 })).rejects.toMatchObject({ status: 403 });
-    expect(denied.calls).toHaveLength(1); // permissão negada não tenta outro caminho
+    // Escrita recusada num prefixo: tenta o outro (nada foi alterado); se os dois recusam, mostra a recusa
+    const local = recorder([new Response("no write", { status: 401 }), new Response("{}", { status: 200 })]);
+    await local.ads.updateCampaign(adv, 5, { budget: 10 });
+    expect(local.calls.map((c) => c.url)).toEqual([
+      "https://api.mercadolibre.com/marketplace/advertising/MLB/product_ads/campaigns/5",
+      "https://api.mercadolibre.com/advertising/MLB/product_ads/campaigns/5",
+    ]);
+    const denied = recorder([new Response("no write", { status: 401 }), new Response("not found", { status: 404 })]);
+    await expect(denied.ads.updateCampaign(adv, 5, { budget: 10 })).rejects.toMatchObject({ status: 401 });
+    // Erro de validação não tenta outro caminho
+    const invalid = recorder([new Response("bad", { status: 400 })]);
+    await expect(invalid.ads.updateCampaign(adv, 5, { budget: 10 })).rejects.toMatchObject({ status: 400 });
+    expect(invalid.calls).toHaveLength(1);
   });
 
   it("cria a campanha com POST no anunciante e devolve o id", async () => {
