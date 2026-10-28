@@ -13,8 +13,9 @@ export async function deliverReport(accountId: string, ownerId: string, kind: st
   if (!report) return "no-report";
   if (!settings.whatsapp_phone) return "no-phone";
   try {
-    await sendReportTemplate(settings.whatsapp_phone, reportMessage(report.data, report.ai));
+    const messageId = await sendReportTemplate(settings.whatsapp_phone, reportMessage(report.data, report.ai));
     await markWhatsapp(accountId, kind, start, null);
+    console.info("Relatório enviado no WhatsApp", accountId, kind, start, messageId);
     return "sent";
   } catch (err) {
     const msg = err instanceof WhatsappError ? err.message : "falha de conexão com o WhatsApp";
