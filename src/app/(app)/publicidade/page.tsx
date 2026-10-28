@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { syncNow } from "../../actions";
-import { NoAccount } from "../NoAccount";
+import { NoAccount, OnlyMercadoLivre } from "../NoAccount";
 import { AdSuggestions } from "@/components/AdSuggestions";
 import { AdsChart } from "@/components/AdsChart";
 import { Kpi } from "@/components/Kpi";
@@ -76,6 +76,7 @@ const roas = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits
 export default async function AdsPage({ searchParams }: { searchParams: Promise<{ decisao?: string; acao?: string }> }) {
   const { user, account } = await currentAccount();
   if (!account) return <NoAccount />;
+  if (account.marketplace !== "mercadolivre") return <OnlyMercadoLivre feature="Publicidade" />;
   const [r, settings, history, existing] = await Promise.all([
     buildAdsReport(user.id, account.id),
     settingsOf(user.id),

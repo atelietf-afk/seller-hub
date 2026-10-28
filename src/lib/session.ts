@@ -1,5 +1,5 @@
 import "server-only";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { auth } from "./auth";
@@ -13,8 +13,14 @@ export const currentUser = cache(async () => {
   return session.user;
 });
 
+/** Cookie com a conta escolhida no seletor do topo (Mercado Livre, Shopee...). */
+export const ACCOUNT_COOKIE = "sh_conta";
+
 export const currentAccount = cache(async () => {
   const user = await currentUser();
   const accounts = await accountsOf(user.id);
-  return { user, account: accounts[0] ?? null, accounts };
+  // Só vale uma conta do próprio usuário; senão, a primeira.
+  const chosen = (await cookies()).get(ACCOUNT_COOKIE)?.value;
+  const account = accounts.find((a) => a.id === chosen) ?? accounts[0] ?? null;
+  return { user, account, accounts };
 });

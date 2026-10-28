@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { NoAccount } from "../NoAccount";
+import { NoAccount, OnlyMercadoLivre } from "../NoAccount";
 import { BestSellersTab } from "./BestSellersTab";
 import { CatalogTab } from "./CatalogTab";
 import { CompetitorsTab } from "./CompetitorsTab";
@@ -26,6 +26,7 @@ const ERRORS: Record<string, string> = {
 export default async function SpyPage({ searchParams }: { searchParams: Promise<{ aba?: string; erro?: string }> }) {
   const { user, account } = await currentAccount();
   if (!account) return <NoAccount />;
+  if (account.marketplace !== "mercadolivre") return <OnlyMercadoLivre feature="Espião" />;
   const { aba, erro } = await searchParams;
   const tab = TABS.find((t) => t.id === aba)?.id ?? "palavras";
   const status = await spyStatus(user.id, account.id);

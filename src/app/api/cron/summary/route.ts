@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isCronRequest } from "@/lib/cron";
-import { syncAccount } from "@/lib/ml/sync";
+import { syncAnyAccount } from "@/lib/sync";
 import { lastCompleteMonth, lastCompleteWeek } from "@/lib/analytics/periods";
 import { ensureDueReports } from "@/lib/period-report";
 import { deliverPendingReports } from "@/lib/report-delivery";
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const results: Record<string, string> = {};
   for (const a of accounts) {
     try {
-      await syncAccount(a.id);
+      await syncAnyAccount(a);
       await createDailySummary(a.id, a.owner_id);
       // Segunda-feira sai o semanal; dia 1, o mensal (e qualquer um que tenha faltado).
       const now = new Date();

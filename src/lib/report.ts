@@ -38,7 +38,7 @@ interface ItemRow {
 }
 
 interface OrderRow {
-  id: number;
+  id: string;
   status: string;
   date_created: string;
   shipping_cost: number | null;

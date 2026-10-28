@@ -1,7 +1,7 @@
 // Lucro real por linha de pedido: o que sobra depois de comissão, frete, imposto e custo.
 
 export interface OrderLine {
-  orderId: number;
+  orderId: string;
   itemId: string;
   quantity: number;
   unitPrice: number;

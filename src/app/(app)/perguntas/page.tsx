@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { draftAllAction, draftAnswerAction, sendAnswerAction } from "../../actions";
-import { NoAccount } from "../NoAccount";
+import { NoAccount, OnlyMercadoLivre } from "../NoAccount";
 import { SeverityBadge } from "@/components/Severity";
 import { SubmitButton } from "@/components/SubmitButton";
 import { ANSWER_MAX, waitingSeverity } from "@/lib/analytics/answers";
@@ -38,6 +38,7 @@ function waited(iso: string) {
 export default async function QuestionsPage({ searchParams }: { searchParams: Promise<{ erro?: string; q?: string; enviada?: string }> }) {
   const { user, account } = await currentAccount();
   if (!account) return <NoAccount />;
+  if (account.marketplace !== "mercadolivre") return <OnlyMercadoLivre feature="Perguntas com IA" />;
   const { erro, q: errQ, enviada } = await searchParams;
   const [pending, answered, settings] = await Promise.all([
     pendingQuestions(user.id, account.id),

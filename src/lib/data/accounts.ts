@@ -8,7 +8,8 @@ import type { EventRow, MlAccount, SellerSettings } from "./types";
 
 export function accountsOf(ownerId: string) {
   return query<MlAccount>(
-    `select a.*, exists (select 1 from ml_tokens t where t.account_id = a.id) as connected
+    `select a.*, (exists (select 1 from ml_tokens t where t.account_id = a.id)
+                 or exists (select 1 from shopee_tokens s where s.account_id = a.id)) as connected
      from ml_accounts a where a.owner_id = $1 order by a.created_at`,
     [ownerId],
   );
@@ -19,11 +20,11 @@ export function accountById(accountId: string) {
 }
 
 export function accountByMlUser(mlUserId: number) {
-  return one<MlAccount>("select * from ml_accounts where ml_user_id = $1", [mlUserId]);
+  return one<MlAccount>("select * from ml_accounts where marketplace = 'mercadolivre' and ml_user_id = $1", [mlUserId]);
 }
 
 export function allAccounts() {
-  return query<Pick<MlAccount, "id" | "owner_id">>("select id, owner_id from ml_accounts order by created_at");
+  return query<Pick<MlAccount, "id" | "owner_id" | "marketplace">>("select id, owner_id, marketplace from ml_accounts order by created_at");
 }
 
 /** Cadastra ou atualiza a conta do ML. Devolve null se ela já pertence a outro usuário. */
@@ -34,7 +35,7 @@ export async function linkAccount(
   return one<MlAccount>(
     `insert into ml_accounts (owner_id, ml_user_id, nickname, site_id, reputation)
      values ($1, $2, $3, $4, $5)
-     on conflict (ml_user_id) do update
+     on conflict (marketplace, ml_user_id) do update
        set nickname = excluded.nickname, site_id = excluded.site_id, reputation = excluded.reputation
        where ml_accounts.owner_id = excluded.owner_id
      returning *`,

@@ -5,7 +5,7 @@ import { todaySales, todayWindow, type SaleOrder } from "@/lib/analytics/today";
 const now = new Date("2026-10-27T18:00:00Z");
 
 const order = (id: number, iso: string, o: Partial<SaleOrder> = {}, cost: number | null = 40): SaleOrder => ({
-  id,
+  id: String(id),
   status: "paid",
   date_created: iso,
   shipping_cost: 10,
@@ -36,7 +36,7 @@ describe("todaySales", () => {
     expect(r.day).toBe("2026-10-27");
     // por pedido: 100 − 14 comissão − 10 frete − 6 imposto − 80 custo = −10
     expect(r.today).toMatchObject({ revenue: 200, orders: 2, units: 4, profit: -20, avgTicket: 100, hasCost: true });
-    expect(r.orders.map((o) => o.id)).toEqual([2, 3, 1]);
+    expect(r.orders.map((o) => o.id)).toEqual(["2", "3", "1"]);
     expect(r.orders[1]).toMatchObject({ status: "cancelled", counted: false });
     expect(r.orders[0].lines[0]).toEqual({ itemId: "MLB1", title: "Caneca", thumbnail: null, quantity: 2 });
   });
@@ -55,7 +55,7 @@ describe("todaySales", () => {
     );
     expect(r.yesterday.orders).toBe(2);
     expect(r.yesterday.revenue).toBe(200);
-    expect(r.orders.map((o) => o.id)).toEqual([1]);
+    expect(r.orders.map((o) => o.id)).toEqual(["1"]);
   });
 
   it("começa o dia à meia-noite de Brasília, não UTC", () => {

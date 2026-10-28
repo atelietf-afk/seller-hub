@@ -477,7 +477,7 @@ describe.skipIf(!url)("banco de dados", () => {
     const from = new Date(now.getTime() - 86_400_000);
     const to = new Date(now.getTime() + 60_000);
     const mine = await sales.ordersWithLines(A, accA, from, to);
-    const o = mine.find((x) => x.id === 9001);
+    const o = mine.find((x) => x.id === "9001"); // id do pedido é texto (a Shopee usa letras)
     expect(o).toMatchObject({ status: "paid", shipping_cost: 20 });
     expect(o?.lines).toEqual([
       { item_id: "MLBA1", title: "MLBA1", thumbnail: null, quantity: 2, unit_price: 100, sale_fee: 14, unit_cost: 40, extra_cost: 2 },
@@ -555,7 +555,7 @@ describe.skipIf(!url)("banco de dados", () => {
       }),
     };
     const start = new Date(now.getTime() - 30 * DAY);
-    const count = async () => (await db.query<{ n: number }>("select count(*)::int as n from orders where id >= 900000"))[0].n;
+    const count = async () => (await db.query<{ n: number }>("select count(*)::int as n from orders where id::bigint >= 900000"))[0].n;
 
     // Sem tempo: não busca nada e não perde o ponto de partida
     expect(await backfill.backfillOrders(api, accA, 1, start, { now, deadline: Date.now() - 1 })).toEqual(start);
@@ -572,7 +572,7 @@ describe.skipIf(!url)("banco de dados", () => {
     calls.length = 0;
     await backfill.backfillOrders(api, accA, 1, reached, { now, deadline: Date.now() + 60_000 });
     expect(calls).toHaveLength(0);
-    await db.query("delete from orders where id >= 900000");
+    await db.query("delete from orders where id::bigint >= 900000");
   });
 
   it("perguntas: pendentes, rascunho e resposta só do próprio vendedor", async () => {
@@ -638,6 +638,29 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(row.last_sync_result.items).toBe(2);
     const [q] = await db.query<{ status: string; answer: string }>("select status, answer from questions where id = 777");
     expect(q).toEqual({ status: "ANSWERED", answer: "respondida no app" });
+  });
+
+  it("aceita conta da Shopee com o mesmo número de uma conta do ML e pedidos com código de letras", async () => {
+    // loja Shopee com shop_id = 1, igual ao user_id da conta ML de A
+    const [shop] = await db.query<{ id: string }>(
+      "insert into ml_accounts (owner_id, marketplace, ml_user_id, nickname, site_id) values ($1, 'shopee', 1, 'loja_shopee', 'BR') returning id",
+      [A],
+    );
+    expect((await data.accountByMlUser(1))?.id).toBe(accA); // webhooks do ML continuam achando a conta do ML
+    const mine = await data.accountsOf(A);
+    expect(mine.map((a) => a.marketplace).sort()).toEqual(["mercadolivre", "shopee"]);
+    expect(mine.find((a) => a.marketplace === "shopee")?.connected).toBe(false);
+    await db.query("insert into shopee_tokens (account_id, access_token, refresh_token, expires_at, refresh_expires_at) values ($1, 'a', 'r', now(), now())", [shop.id]);
+    expect((await data.accountsOf(A)).find((a) => a.marketplace === "shopee")?.connected).toBe(true);
+    expect(await data.accountsOf(B)).toHaveLength(1);
+
+    await db.query(
+      "insert into orders (id, account_id, status, date_created, total_amount) values ('2610280ABCDXYZ', $1, 'paid', now(), 50)",
+      [shop.id],
+    );
+    const lines = await sales.ordersWithLines(A, shop.id, new Date(Date.now() - 3_600_000), new Date(Date.now() + 60_000));
+    expect(lines.map((o) => o.id)).toEqual(["2610280ABCDXYZ"]);
+    await db.query("delete from ml_accounts where id = $1", [shop.id]);
   });
 
   it("cadastra e autentica usuários pelo Better Auth", async () => {

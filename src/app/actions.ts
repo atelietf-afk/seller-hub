@@ -2,7 +2,7 @@
 
 import { APIError } from "better-auth/api";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import * as data from "@/lib/data/accounts";
@@ -22,8 +22,8 @@ import { MlSpyApi, type Listing } from "@/lib/ml/spy-api";
 import { saveCompetitorSnapshot } from "@/lib/ml/spy-sync";
 import { apiFor } from "@/lib/ml/tokens";
 import { parseMoney } from "@/lib/format";
-import { syncAccount } from "@/lib/ml/sync";
-import { currentAccount, currentUser } from "@/lib/session";
+import { syncAnyAccount } from "@/lib/sync";
+import { ACCOUNT_COOKIE, currentAccount, currentUser } from "@/lib/session";
 import { createDailySummary } from "@/lib/summaries";
 import * as adsData from "@/lib/data/ads";
 import { parseBudget, parseRoas } from "@/lib/analytics/ad-changes";
@@ -80,7 +80,7 @@ export async function syncNow() {
   const account = await ownAccount();
   if (!account.connected) redirect("/dashboard?erro=sem-conexao");
   try {
-    await syncAccount(account.id);
+    await syncAnyAccount(account);
   } catch (err) {
     console.error("Sincronização manual falhou", account.id, err);
     redirect("/dashboard?erro=sync");
@@ -433,4 +433,16 @@ export async function sendAnswerAction(formData: FormData) {
   revalidatePath("/dashboard");
   if (result !== "ok") back(result);
   redirect("/perguntas?enviada=1");
+}
+
+// Conta ativa -------------------------------------------------------------------
+
+export async function selectAccount(formData: FormData) {
+  const { accounts } = await currentAccount();
+  const id = String(formData.get("accountId") ?? "");
+  if (accounts.some((a) => a.id === id)) {
+    (await cookies()).set(ACCOUNT_COOKIE, id, { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 60 * 60 * 24 * 365 });
+  }
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
 }

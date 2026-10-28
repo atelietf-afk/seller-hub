@@ -15,7 +15,7 @@ export interface SaleLine {
 }
 
 export interface SaleOrder {
-  id: number;
+  id: string; // pedido do marketplace (número no ML, código com letras na Shopee)
   status: string;
   date_created: string;
   shipping_cost: number | null;
@@ -33,7 +33,7 @@ export interface DayTotals {
 }
 
 export interface TodayOrder {
-  id: number;
+  id: string;
   time: string; // ISO
   status: string;
   counted: boolean; // entra nos totais (pago)

@@ -1,8 +1,12 @@
 // Linhas do banco usadas fora da camada de dados.
 
+export type Marketplace = "mercadolivre" | "shopee";
+
 export interface MlAccount {
   id: string;
   owner_id: string;
+  marketplace: Marketplace;
+  /** Id do vendedor no marketplace: user_id no Mercado Livre, shop_id na Shopee. */
   ml_user_id: number;
   nickname: string | null;
   site_id: string;

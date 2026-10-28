@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { lineProfit, sumProfits } from "@/lib/analytics/profit";
 
-const line = { orderId: 1, itemId: "MLB1", quantity: 2, unitPrice: 100, saleFee: 14, orderShippingCost: 20, orderTotal: 200 };
+const line = { orderId: "1", itemId: "MLB1", quantity: 2, unitPrice: 100, saleFee: 14, orderShippingCost: 20, orderTotal: 200 };
 
 describe("lineProfit", () => {
   it("desconta comissão, frete, imposto e custo", () => {
@@ -24,7 +24,7 @@ describe("lineProfit", () => {
 describe("sumProfits", () => {
   it("soma as linhas e recalcula a margem", () => {
     const a = lineProfit(line, { unitCost: 40, extraCost: 2 }, 0.06);
-    const b = lineProfit({ ...line, orderId: 2 }, { unitCost: 40, extraCost: 2 }, 0.06);
+    const b = lineProfit({ ...line, orderId: "2" }, { unitCost: 40, extraCost: 2 }, 0.06);
     const t = sumProfits([a, b]);
     expect(t.revenue).toBe(400);
     expect(t.profit).toBe(112);
