@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Fragment } from "react";
 import { syncNow } from "../../actions";
 import { NoAccount } from "../NoAccount";
@@ -41,11 +42,13 @@ const DECISION: Record<
 const opt = (n: number | null, f: (n: number) => string) => (n === null ? "—" : f(n));
 const roas = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}x`;
 
-export default async function AdsPage() {
+export default async function AdsPage({ searchParams }: { searchParams: Promise<{ decisao?: string }> }) {
   const { user, account } = await currentAccount();
   if (!account) return <NoAccount />;
   const [r, settings] = await Promise.all([buildAdsReport(user.id, account.id), settingsOf(user.id)]);
   if (!r) return <NoAccount />;
+  const requested = (await searchParams).decisao;
+  const filter = requested && requested in DECISION ? (requested as AdDecision) : null;
   const t = r.totals;
   const status = r.status.ads_status;
 
@@ -176,7 +179,7 @@ export default async function AdsPage() {
 
       {status === "ok" && <AdSuggestions result={r.suggestions} minMargin={settings.min_margin} />}
 
-      <section className="rounded-xl border border-line bg-surface">
+      <section id="produtos-anunciados" className="scroll-mt-4 rounded-xl border border-line bg-surface">
         <h2 className="p-4 pb-0 font-semibold">Produtos anunciados</h2>
         {r.items === null ? (
           <p className="p-4 text-sm text-ink-2">
@@ -184,7 +187,7 @@ export default async function AdsPage() {
           </p>
         ) : (
           <>
-            {r.items.length > 0 && <DecisionCounts items={r.items} />}
+            {r.items.length > 0 && <DecisionFilter items={r.items} active={filter} />}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1100px] text-sm">
                 <thead className="border-b border-line text-left text-xs text-muted">
@@ -201,7 +204,8 @@ export default async function AdsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {[...r.items]
+                  {r.items
+                    .filter((i) => !filter || i.decision === filter)
                     .sort((a, b) => DECISION[a.decision].order - DECISION[b.decision].order || b.cost - a.cost)
                     .map((i) => (
                       <tr key={i.item_id} className="align-top">
@@ -333,16 +337,35 @@ function Diagnoses({ list }: { list: CampaignDiagnosis[] }) {
   );
 }
 
-function DecisionCounts({ items }: { items: { decision: AdDecision }[] }) {
+/** Contagem por decisão, que também filtra a lista (clicar de novo tira o filtro). */
+function DecisionFilter({ items, active }: { items: { decision: AdDecision }[]; active: AdDecision | null }) {
   const counts = new Map<AdDecision, number>();
   for (const i of items) counts.set(i.decision, (counts.get(i.decision) ?? 0) + 1);
+  const href = (d: AdDecision | null) => `/publicidade${d ? `?decisao=${d}` : ""}#produtos-anunciados`;
+  const chip = (on: boolean) => `rounded-md border p-0.5 ${on ? "border-ink" : "border-transparent hover:border-line"}`;
   return (
-    <p className="flex flex-wrap gap-2 px-4 pt-2 text-xs">
+    <nav aria-label="Filtrar por decisão" className="flex flex-wrap items-center gap-1.5 px-4 pt-2 text-xs">
+      <Link
+        href={href(null)}
+        scroll={false}
+        className={`${chip(!active)} px-2 py-1 font-medium`}
+        aria-current={!active ? "true" : undefined}
+      >
+        Todos ({items.length})
+      </Link>
       {(Object.keys(DECISION) as AdDecision[])
         .filter((d) => counts.get(d))
         .map((d) => (
-          <SeverityBadge key={d} severity={DECISION[d].severity} label={`${counts.get(d)} ${DECISION[d].label.toLowerCase()}`} />
+          <Link
+            key={d}
+            href={href(active === d ? null : d)}
+            scroll={false}
+            className={chip(active === d)}
+            aria-current={active === d ? "true" : undefined}
+          >
+            <SeverityBadge severity={DECISION[d].severity} label={`${counts.get(d)} ${DECISION[d].label.toLowerCase()}`} />
+          </Link>
         ))}
-    </p>
+    </nav>
   );
 }
