@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeEffect, parseBudget, parseRoas } from "@/lib/analytics/ad-changes";
+import { changeEffect, detectCampaignChanges, parseBudget, parseRoas } from "@/lib/analytics/ad-changes";
 
 describe("valores digitados", () => {
   it("orçamento em reais, dentro dos limites", () => {
@@ -46,5 +46,23 @@ describe("changeEffect", () => {
 
   it("sem investimento o ROAS fica vazio", () => {
     expect(changeEffect([], changedAt, new Date("2026-10-28T15:00:00Z")).before).toEqual({ days: 7, cost: 0, revenue: 0, roas: null });
+  });
+});
+
+
+describe("detectCampaignChanges", () => {
+  const c = (o = {}) => ({ id: 1, name: "Mais vendidos", budget: 6, roasTarget: 4.5, status: "active", ...o });
+  it("detecta orçamento, ROAS objetivo e situação mudados no Mercado Ads", () => {
+    expect(detectCampaignChanges([c()], [c({ budget: 10, roasTarget: 3.5, status: "PAUSED" })])).toEqual([
+      { campaignId: 1, campaignName: "Mais vendidos", field: "budget", before: "6", after: "10" },
+      { campaignId: 1, campaignName: "Mais vendidos", field: "roas_target", before: "4.5", after: "3.5" },
+      { campaignId: 1, campaignName: "Mais vendidos", field: "status", before: "active", after: "paused" },
+    ]);
+  });
+  it("ignora campanha nova, valor igual e campo que a API não mandou", () => {
+    expect(detectCampaignChanges([], [c()])).toEqual([]);
+    expect(detectCampaignChanges([c()], [c({ budget: 6.001 })])).toEqual([]);
+    expect(detectCampaignChanges([c({ roasTarget: null })], [c({ roasTarget: 3 })])).toEqual([]);
+    expect(detectCampaignChanges([c()], [c({ budget: null, status: null })])).toEqual([]);
   });
 });

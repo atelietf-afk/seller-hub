@@ -180,12 +180,13 @@ export interface AdsChangeRow {
   ok: boolean;
   error: string | null;
   created_at: string;
+  source: "seller_hub" | "mercado_ads";
 }
 
 export async function recordAdsChange(
   ownerId: string,
   accountId: string,
-  c: Omit<AdsChangeRow, "id" | "created_at">,
+  c: Omit<AdsChangeRow, "id" | "created_at" | "source">,
 ) {
   await query(
     `insert into ads_changes (account_id, campaign_id, campaign_name, field, before_value, after_value, ok, error)
@@ -197,7 +198,7 @@ export async function recordAdsChange(
 /** Mudanças dos últimos 60 dias e as métricas diárias das campanhas envolvidas, para medir o efeito. */
 export async function adsChanges(ownerId: string, accountId: string) {
   const changes = await query<AdsChangeRow>(
-    `select x.id, x.campaign_id, x.campaign_name, x.field, x.before_value, x.after_value, x.ok, x.error, x.created_at
+    `select x.id, x.campaign_id, x.campaign_name, x.field, x.before_value, x.after_value, x.ok, x.error, x.created_at, x.source
      from ads_changes x join ml_accounts a on a.id = x.account_id and a.owner_id = $2
      where x.account_id = $1 and x.created_at > now() - interval '60 days'
      order by x.created_at desc limit 50`,

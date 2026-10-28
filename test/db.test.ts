@@ -261,6 +261,33 @@ describe.skipIf(!url)("banco de dados", () => {
     await db.query("delete from ads_campaigns where account_id = $1 and id = 98", [accA]);
   });
 
+  it("registra sozinho as mudanças feitas no Mercado Ads", async () => {
+    // estado salvo agora: orçamento 45, pausada, ROAS 2 (do teste anterior). No ML: 30, ativa, ROAS 2.
+    const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = String(url);
+        if (u.includes("/advertising/advertisers?product_id=PADS")) return respond({ advertisers: [{ advertiser_id: 9, site_id: "MLB" }] });
+        if (u.includes("/product_ads/campaigns/5?")) return respond({ id: 5, roas_target: 2 });
+        if (u.includes("/product_ads/campaigns")) return respond({ results: [{ id: 5, name: "Fones", status: "active", budget: 30 }] });
+        if (u.includes("/product_ads/ads/search")) return respond({ results: [] });
+        return respond({ message: "inesperado " + u }, 500);
+      }),
+    );
+    try {
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", changes: 2 });
+      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", changes: 0 }); // nada mudou de novo
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const h = await adsData.adsChanges(A, accA);
+    const fromMl = h.changes.filter((c) => c.source === "mercado_ads").map((c) => [c.field, c.before_value, c.after_value]);
+    expect(fromMl).toEqual(expect.arrayContaining([["budget", "45", "30"], ["status", "paused", "active"]]));
+    expect(fromMl).toHaveLength(2);
+    expect((await adsData.adsChanges(B, accA)).changes).toEqual([]);
+  });
+
   it("segue sem as métricas de leilão quando a API recusa e o caminho antigo dá 404", async () => {
     const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
     vi.stubGlobal(

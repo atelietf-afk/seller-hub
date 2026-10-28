@@ -72,3 +72,45 @@ export function changeEffect(daily: DayMetrics[], changedAt: string, now: Date):
   const after = (n: number) => (daysSince >= n ? window(daily, addDays(changed, 1), addDays(changed, n)) : null);
   return { before: window(daily, addDays(changed, -7), addDays(changed, -1)), after7: after(7), after14: after(14), daysSince };
 }
+
+// ---------------------------------------------------------------------------
+// Mudanças feitas no Mercado Ads: detectadas comparando a campanha com a última sincronização.
+
+export interface CampaignSnapshot {
+  id: number;
+  name: string;
+  budget: number | null;
+  roasTarget: number | null;
+  status: string | null;
+}
+
+export interface DetectedChange {
+  campaignId: number;
+  campaignName: string;
+  field: ChangeField;
+  before: string;
+  after: string;
+}
+
+const same = (a: number, b: number) => Math.abs(a - b) < 0.005;
+
+/** Só compara o que existe dos dois lados: campo que a API deixou de mandar não conta como mudança. */
+export function detectCampaignChanges(previous: CampaignSnapshot[], current: CampaignSnapshot[]): DetectedChange[] {
+  const before = new Map(previous.map((c) => [c.id, c]));
+  const out: DetectedChange[] = [];
+  for (const c of current) {
+    const p = before.get(c.id);
+    if (!p) continue; // campanha nova: não é mudança
+    const base = { campaignId: c.id, campaignName: c.name };
+    if (p.budget !== null && c.budget !== null && !same(p.budget, c.budget)) {
+      out.push({ ...base, field: "budget", before: String(p.budget), after: String(c.budget) });
+    }
+    if (p.roasTarget !== null && c.roasTarget !== null && !same(p.roasTarget, c.roasTarget)) {
+      out.push({ ...base, field: "roas_target", before: String(p.roasTarget), after: String(c.roasTarget) });
+    }
+    if (p.status && c.status && p.status.toLowerCase() !== c.status.toLowerCase()) {
+      out.push({ ...base, field: "status", before: p.status.toLowerCase(), after: c.status.toLowerCase() });
+    }
+  }
+  return out;
+}

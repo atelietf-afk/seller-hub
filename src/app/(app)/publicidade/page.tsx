@@ -12,6 +12,8 @@ import { buildAdsReport } from "@/lib/ads-report";
 import { settingsOf } from "@/lib/data/accounts";
 import { adsChanges, campaignNames, type AdsChangeRow } from "@/lib/data/ads";
 import { CampaignControls } from "@/components/CampaignControls";
+import { CopyButton } from "@/components/CopyButton";
+import { adsWriteEnabled } from "@/lib/ml/ads-write";
 import { changeEffect, type EffectWindow } from "@/lib/analytics/ad-changes";
 import { brl, dateTime, int, pct } from "@/lib/format";
 import { currentAccount } from "@/lib/session";
@@ -33,7 +35,7 @@ const ACTION_MSG: Record<string, { ok: boolean; text: string }> = {
   },
   permissao: {
     ok: false,
-    text: "O Mercado Livre não deixou o Seller Hub alterar campanhas. No DevCenter, deixe a permissão Publicidade como leitura e escrita e reconecte a conta em Configurações.",
+    text: "O Mercado Livre ainda não libera a alteração de campanhas pela API no Brasil. Aplique os valores sugeridos direto no Mercado Ads; as mudanças aparecem sozinhas no histórico.",
   },
   recusado: { ok: false, text: "O Mercado Livre recusou o valor. Confira o orçamento e o ROAS objetivo (de 1x a 35x) e tente de novo." },
   erro: { ok: false, text: "Não conseguimos falar com o Mercado Livre agora. Tente de novo em alguns minutos." },
@@ -82,6 +84,7 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
   ]);
   if (!r) return <NoAccount />;
   const { decisao: requested, acao } = await searchParams;
+  const writeEnabled = adsWriteEnabled();
   const action = acao ? ACTION_MSG[acao] : undefined;
   const filter = requested && requested in DECISION ? (requested as AdDecision) : null;
   const t = r.totals;
@@ -205,17 +208,21 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
                     <tr>
                       <td colSpan={10} className="space-y-2 px-3 pb-3">
                         <Diagnoses list={c.diagnoses} />
-                        <details className="rounded-md border border-line p-2.5">
-                          <summary className="cursor-pointer text-sm font-medium">Ajustar campanha</summary>
-                          <div className="mt-2">
-                            <CampaignControls
-                              campaign={{ id: c.id, name: c.name, status: c.status, budget: c.budget, roasTarget: c.roas_target }}
-                              suggestBudget={c.diagnoses.find((d) => d.suggest?.budget !== undefined)?.suggest?.budget}
-                              suggestRoas={c.diagnoses.find((d) => d.suggest?.roasTarget !== undefined)?.suggest?.roasTarget}
-                              breakEvenRoas={c.breakEvenRoas}
-                            />
-                          </div>
-                        </details>
+                        {writeEnabled ? (
+                          <details className="rounded-md border border-line p-2.5">
+                            <summary className="cursor-pointer text-sm font-medium">Ajustar campanha</summary>
+                            <div className="mt-2">
+                              <CampaignControls
+                                campaign={{ id: c.id, name: c.name, status: c.status, budget: c.budget, roasTarget: c.roas_target }}
+                                suggestBudget={c.diagnoses.find((d) => d.suggest?.budget !== undefined)?.suggest?.budget}
+                                suggestRoas={c.diagnoses.find((d) => d.suggest?.roasTarget !== undefined)?.suggest?.roasTarget}
+                                breakEvenRoas={c.breakEvenRoas}
+                              />
+                            </div>
+                          </details>
+                        ) : (
+                          <ApplyInMercadoAds diagnoses={c.diagnoses} />
+                        )}
                       </td>
                     </tr>
                   </Fragment>
@@ -227,7 +234,9 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
         </div>
       </section>
 
-      {status === "ok" && <AdSuggestions result={r.suggestions} minMargin={settings.min_margin} existing={existing} />}
+      {status === "ok" && (
+        <AdSuggestions result={r.suggestions} minMargin={settings.min_margin} existing={existing} writeEnabled={writeEnabled} />
+      )}
 
       <section id="produtos-anunciados" className="scroll-mt-4 rounded-xl border border-line bg-surface">
         <h2 className="p-4 pb-0 font-semibold">Produtos anunciados</h2>
@@ -448,19 +457,21 @@ function ChangesHistory({
   return (
     <section className="rounded-xl border border-line bg-surface">
       <div className="p-4 pb-0">
-        <h2 className="font-semibold">Mudanças feitas pelo Seller Hub</h2>
+        <h2 className="font-semibold">Mudanças nas campanhas</h2>
         <p className="text-xs text-muted">
-          Vendas com anúncio e ROAS nos 7 dias antes da mudança contra os 7 e 14 dias depois. O Mercado Livre leva até 14 dias para atribuir
-          as vendas, então o de 7 dias é uma prévia.
+          Mudanças de orçamento, ROAS objetivo e situação feitas no Mercado Ads aparecem aqui sozinhas na sincronização seguinte. Vendas com
+          anúncio e ROAS nos 7 dias antes da mudança contra os 7 e 14 dias depois. O Mercado Livre leva até 14 dias para atribuir as vendas,
+          então o de 7 dias é uma prévia.
         </p>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[960px] text-sm">
           <thead className="border-b border-line text-left text-xs text-muted">
             <tr>
               <th className="p-3 font-medium">Quando</th>
               <th className="p-3 font-medium">Campanha</th>
               <th className="p-3 font-medium">Mudança</th>
+              <th className="p-3 font-medium">Onde</th>
               <th className="p-3 font-medium">7 dias antes</th>
               <th className="p-3 font-medium">7 dias depois</th>
               <th className="p-3 font-medium">14 dias depois</th>
@@ -491,6 +502,7 @@ function ChangesHistory({
                       </p>
                     )}
                   </td>
+                  <td className="p-3 text-muted">{c.source === "mercado_ads" ? "Mercado Ads" : "Seller Hub"}</td>
                   <td className="p-3">{e ? win(e.before, 0) : "—"}</td>
                   <td className="p-3">{e ? win(e.after7, 7 - e.daysSince) : "—"}</td>
                   <td className="p-3">{e ? win(e.after14, 14 - e.daysSince) : "—"}</td>
@@ -501,5 +513,20 @@ function ChangesHistory({
         </table>
       </div>
     </section>
+  );
+}
+
+/** Sem escrita pela API: mostra os valores sugeridos para aplicar à mão no Mercado Ads. */
+function ApplyInMercadoAds({ diagnoses }: { diagnoses: { suggest?: { budget?: number; roasTarget?: number } }[] }) {
+  const budget = diagnoses.find((d) => d.suggest?.budget !== undefined)?.suggest?.budget;
+  const roasTarget = diagnoses.find((d) => d.suggest?.roasTarget !== undefined)?.suggest?.roasTarget;
+  if (budget === undefined && roasTarget === undefined) return null;
+  const decimal = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-ink-2">Aplicar no Mercado Ads (Publicidade → editar campanha):</span>
+      {budget !== undefined && <CopyButton text={decimal(budget)} label={`Copiar orçamento ${brl(budget)}`} />}
+      {roasTarget !== undefined && <CopyButton text={decimal(roasTarget)} label={`Copiar ROAS ${roas(roasTarget)}`} />}
+    </div>
   );
 }

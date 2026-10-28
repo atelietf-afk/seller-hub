@@ -7,7 +7,17 @@ import { CopyButton } from "./CopyButton";
 const x = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}x`;
 
 // Campanhas novas sugeridas, com tudo o que o Mercado Ads pede para criar.
-export function AdSuggestions({ result, minMargin, existing }: { result: SuggestionResult; minMargin: number; existing: Set<string> }) {
+export function AdSuggestions({
+  result,
+  minMargin,
+  existing,
+  writeEnabled,
+}: {
+  result: SuggestionResult;
+  minMargin: number;
+  existing: Set<string>;
+  writeEnabled: boolean;
+}) {
   const { suggestions, skipped } = result;
   return (
     <section id="sugestoes" className="scroll-mt-4 space-y-3 rounded-xl border border-line bg-surface p-4">
@@ -22,8 +32,16 @@ export function AdSuggestions({ result, minMargin, existing }: { result: Suggest
         <summary className="cursor-pointer font-medium">Como criar no Mercado Ads</summary>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-ink-2">
           <li>
-            Clique em <strong>Criar no Mercado Livre</strong> (ou crie em Publicidade → Product Ads com o nome, a estratégia, o orçamento e
-            o ROAS objetivo do card).
+            {writeEnabled ? (
+              <>
+                Clique em <strong>Criar no Mercado Livre</strong> (ou crie em Publicidade → Product Ads com os dados do card).
+              </>
+            ) : (
+              <>
+                No Mercado Livre, abra Publicidade → Product Ads e crie uma campanha com os dados do card (botão{" "}
+                <strong>Copiar dados da campanha</strong>).
+              </>
+            )}
           </li>
           <li>
             Adicione os anúncios pelos códigos (botão <strong>Copiar códigos</strong>). Os marcados como <strong>Mover</strong> saem da
@@ -38,7 +56,7 @@ export function AdSuggestions({ result, minMargin, existing }: { result: Suggest
       ) : (
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {suggestions.map((s) => (
-            <Card key={s.kind} s={s} created={existing.has(s.name)} />
+            <Card key={s.kind} s={s} created={existing.has(s.name)} writeEnabled={writeEnabled} />
           ))}
         </div>
       )}
@@ -66,7 +84,7 @@ export function AdSuggestions({ result, minMargin, existing }: { result: Suggest
   );
 }
 
-function Card({ s, created }: { s: CampaignSuggestion; created: boolean }) {
+function Card({ s, created, writeEnabled }: { s: CampaignSuggestion; created: boolean; writeEnabled: boolean }) {
   const review = dateOnly(s.reviewAt);
   const moving = s.items.filter((i) => i.action === "mover").length;
   return (
@@ -90,8 +108,13 @@ function Card({ s, created }: { s: CampaignSuggestion; created: boolean }) {
       <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
         {created ? (
           <p className="rounded-md bg-good/10 px-2 py-1 text-sm text-good">
-            ✓ Campanha criada. Falta adicionar os anúncios no Mercado Ads.
+            ✓ Campanha já existe. Confira os anúncios dela no Mercado Ads.
           </p>
+        ) : !writeEnabled ? (
+          <CopyButton
+            text={`Nome: ${s.name}\nEstratégia: ${STRATEGY_LABEL[s.strategy]}\nOrçamento diário: ${brl(s.budget)}\nROAS objetivo: ${x(s.roasTarget)}`}
+            label="Copiar dados da campanha"
+          />
         ) : (
           <CreateCampaignForm kind={s.kind} name={s.name} budget={s.budget} roasTarget={s.roasTarget} breakEvenRoas={s.breakEvenRoas} />
         )}

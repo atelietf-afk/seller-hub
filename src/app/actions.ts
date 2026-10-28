@@ -30,6 +30,7 @@ import { parseBudget, parseRoas } from "@/lib/analytics/ad-changes";
 import { KINDS, type SuggestionKind } from "@/lib/analytics/ad-suggestions";
 import { buildAdsReport } from "@/lib/ads-report";
 import { MlAdsApi, type CampaignChange, type CampaignStrategy } from "@/lib/ml/ads-api";
+import { adsWriteEnabled } from "@/lib/ml/ads-write";
 
 // Login -------------------------------------------------------------------
 
@@ -252,6 +253,7 @@ const backToAds = (acao: string, anchor = "campanhas") => redirect(`/publicidade
 
 export async function updateCampaignAction(formData: FormData) {
   const account = await ownAccount();
+  if (!adsWriteEnabled()) return backToAds("permissao");
   const field = String(formData.get("field"));
   const raw = String(formData.get("value") ?? "");
   const c = await adsData.ownCampaign(account.owner_id, account.id, Number(formData.get("campaignId")));
@@ -317,6 +319,7 @@ export async function updateCampaignAction(formData: FormData) {
 
 export async function createSuggestedCampaignAction(formData: FormData) {
   const account = await ownAccount();
+  if (!adsWriteEnabled()) return backToAds("permissao", "sugestoes");
   const kind = String(formData.get("kind")) as SuggestionKind;
   if (!(kind in KINDS)) return backToAds("valor-invalido", "sugestoes");
   const budget = parseBudget(String(formData.get("budget") ?? ""));

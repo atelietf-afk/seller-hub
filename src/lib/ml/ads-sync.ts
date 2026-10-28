@@ -1,4 +1,5 @@
 import "server-only";
+import { detectCampaignChanges } from "@/lib/analytics/ad-changes";
 import { query } from "@/lib/db";
 import { MlApiError } from "./api";
 import { MlAdsApi } from "./ads-api";
@@ -16,6 +17,8 @@ export interface AdsSyncResult {
   insights?: number;
   /** Quantas campanhas vieram com ROAS objetivo. */
   roasTargets?: number;
+  /** Mudanças de orçamento, ROAS objetivo ou situação feitas no Mercado Ads desde a última sincronização. */
+  changes?: number;
   error?: string;
 }
 
@@ -52,6 +55,16 @@ export async function syncAds(accountId: string): Promise<AdsSyncResult> {
     });
     const items = await ads.items(advertiser, from, to);
 
+    // Como estavam as campanhas na última sincronização: o que mudou foi feito no Mercado Ads.
+    const previous = await query<{ id: number; name: string; budget: number | null; roas_target: number | null; status: string | null }>(
+      "select id, name, budget, roas_target, status from ads_campaigns where account_id = $1",
+      [accountId],
+    );
+    const changes = detectCampaignChanges(
+      previous.map((p) => ({ id: Number(p.id), name: p.name, budget: p.budget, roasTarget: p.roas_target, status: p.status })),
+      campaigns.map((c) => ({ id: c.id, name: c.name, budget: c.budget, roasTarget: c.roasTarget, status: c.status })),
+    );
+
     await query(
       `insert into ads_campaigns (account_id, id, name, status, strategy, budget, acos_target, roas_target, impression_share,
          top_impression_share, lost_by_budget, lost_by_rank, acos_benchmark, period_days, clicks, prints, cost, revenue, units)
@@ -68,6 +81,14 @@ export async function syncAds(accountId: string): Promise<AdsSyncResult> {
          revenue = excluded.revenue, units = excluded.units, updated_at = now()`,
       [accountId, JSON.stringify(campaigns), ADS_PERIOD_DAYS],
     );
+    if (changes.length) {
+      await query(
+        `insert into ads_changes (account_id, campaign_id, campaign_name, field, before_value, after_value, ok, source)
+         select $1::uuid, (c->>'campaignId')::bigint, c->>'campaignName', c->>'field', c->>'before', c->>'after', true, 'mercado_ads'
+         from json_array_elements($2::json) c`,
+        [accountId, JSON.stringify(changes)],
+      );
+    }
     if (daily.length) {
       await query(
         `insert into ads_campaign_daily (account_id, campaign_id, day, clicks, prints, cost, revenue, units)
@@ -102,6 +123,7 @@ export async function syncAds(accountId: string): Promise<AdsSyncResult> {
         itemsSource: ads.itemsSource,
         insights,
         roasTargets: campaigns.filter((c) => c.roasTarget !== null).length,
+        changes: changes.length,
       },
       advertiser.advertiserId,
     );
