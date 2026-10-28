@@ -15,6 +15,7 @@ Painel para vendedores de marketplaces. Começa pelo **Mercado Livre**. Shopee, 
 | **Espião** | **Palavras-chave**: buscas em alta na categoria e termos dos mais vendidos que faltam no seu título, com títulos sugeridos pela IA (até 60 caracteres, sem inventar características). **Mais vendidos**: top 20 de cada categoria sua, com preço comparado à mediana, frete grátis e Full. **Catálogo**: se você está ganhando a vitrine e o preço para ganhar, com alerta ao perder. **Concorrentes**: cole o link de um anúncio e acompanhe preço e situação dia a dia, com alerta quando baixarem o preço. |
 | **Relatórios semanal e mensal** | Gerados sozinhos (semanal toda segunda, mensal todo dia 1) ou na hora. Faturamento, vendas, ticket médio, lucro real e para onde foi o dinheiro (comissão, frete, imposto, custo, anúncios), publicidade, tráfego, produtos que mais faturaram, os que mais subiram e caíram, pontos de atenção e análise da IA. Página pronta para imprimir ou salvar em PDF. Chegam também no **WhatsApp** (API oficial da Meta) com os números principais e o link do relatório. |
 | **Perguntas com IA** | Perguntas sem resposta da mais antiga para a mais nova, com o tempo de espera. A IA sugere a resposta usando o anúncio (ficha técnica, descrição, frete, estoque, garantia), as informações da loja e respostas anteriores, sem inventar: marca entre colchetes o que falta. Você revisa e envia ao ML. Bloqueia telefone, e-mail, links e redes sociais antes de enviar. |
+| **Shopee** (em validação) | Conexão da loja pela Shopee Open Platform (assinatura HMAC, tokens de 4 h renovados sozinhos), sincronização de anúncios (com variações), pedidos dos últimos 15 dias e histórico de até 120 dias, com comissão, taxas e frete do extrato de cada pedido. Painel, produtos e relatórios funcionam para a loja da Shopee; Perguntas, Publicidade e Espião ainda são só do Mercado Livre. Um seletor no topo troca a conta. |
 | **Resumo diário com IA** | O Claude lê os números da semana e explica o que mudou e o que fazer, em linguagem simples. |
 
 ## Arquitetura
@@ -69,6 +70,10 @@ Next.js 16 (Vercel) ──► Postgres (Neon) ── login: Better Auth (e-mail 
    Depois de aprovado, configure `WHATSAPP_TOKEN` (token permanente de um usuário do sistema) e `WHATSAPP_PHONE_NUMBER_ID`
    na Vercel, e cada vendedor cadastra o número dele em **Configurações**. O envio sai junto com o cron diário; se falhar,
    tenta de novo nos dias seguintes (até 3 dias) e o motivo aparece no relatório.
+
+6. **Shopee (opcional):** cadastre-se na [Shopee Open Platform](https://open.shopee.com) e crie um app. Configure
+   `SHOPEE_PARTNER_ID`, `SHOPEE_PARTNER_KEY` e `SHOPEE_API_URL` na Vercel e, no app da Shopee, o domínio de redirecionamento
+   `https://SEU-DOMINIO`. Em **Configurações → Conectar Shopee** o vendedor autoriza a loja (a autorização vale até 365 dias).
 
 > **Histórico de pedidos:** a primeira sincronização traz 30 dias; depois, cada sincronização recua mais 30 dias (com limite de tempo)
 > até completar 120 dias, o suficiente para o relatório mensal e sua comparação. O relatório avisa quando o histórico ainda está incompleto.

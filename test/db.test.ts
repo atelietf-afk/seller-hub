@@ -26,6 +26,8 @@ describe.skipIf(!url)("banco de dados", () => {
   let delivery: typeof import("@/lib/report-delivery");
   let sales: typeof import("@/lib/data/sales");
   let adsData: typeof import("@/lib/data/ads");
+  let shopeeSync: typeof import("@/lib/shopee/sync");
+  let shopeeTokens: typeof import("@/lib/shopee/tokens");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -56,6 +58,8 @@ describe.skipIf(!url)("banco de dados", () => {
     delivery = await import("@/lib/report-delivery");
     sales = await import("@/lib/data/sales");
     adsData = await import("@/lib/data/ads");
+    shopeeSync = await import("@/lib/shopee/sync");
+    shopeeTokens = await import("@/lib/shopee/tokens");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -660,6 +664,90 @@ describe.skipIf(!url)("banco de dados", () => {
     );
     const lines = await sales.ordersWithLines(A, shop.id, new Date(Date.now() - 3_600_000), new Date(Date.now() + 60_000));
     expect(lines.map((o) => o.id)).toEqual(["2610280ABCDXYZ"]);
+    await db.query("delete from ml_accounts where id = $1", [shop.id]);
+  });
+
+  it("sincroniza a loja da Shopee: anúncios, variações, pedidos e taxas", async () => {
+    process.env.SHOPEE_PARTNER_ID = "2001887";
+    process.env.SHOPEE_PARTNER_KEY = "chave";
+    const shop = (await data.linkShopeeShop(A, { id: 777, name: "loja_shp" }))!;
+    expect(await data.linkShopeeShop(B, { id: 777, name: "invasor" })).toBeNull(); // loja de outro usuário
+    await shopeeTokens.saveShopeeTokens(shop.id, { access_token: "tok", refresh_token: "ref", expire_in: 14400 });
+
+    const now = Math.floor(Date.now() / 1000);
+    const paths: string[] = [];
+    const reply = (response: unknown) => new Response(JSON.stringify({ error: "", message: "", response }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const u = new URL(String(url));
+        paths.push(u.pathname);
+        expect(u.searchParams.get("shop_id")).toBe("777");
+        switch (u.pathname) {
+          case "/api/v2/product/get_item_list":
+            return reply({ item: [{ item_id: 1 }, { item_id: 2 }], has_next_page: false });
+          case "/api/v2/product/get_item_base_info":
+            return reply({
+              item_list: [
+                { item_id: 1, item_name: "Caneca", item_status: "NORMAL", price_info: [{ current_price: 40 }], stock_info_v2: { summary_info: { total_available_stock: 5 } } },
+                { item_id: 2, item_name: "Almofada", item_status: "NORMAL", has_model: true },
+              ],
+            });
+          case "/api/v2/product/get_model_list":
+            return reply({
+              model: [
+                { price_info: [{ current_price: 35 }], stock_info_v2: { summary_info: { total_available_stock: 2 } } },
+                { price_info: [{ current_price: 30 }], stock_info_v2: { summary_info: { total_available_stock: 3 } } },
+              ],
+            });
+          case "/api/v2/order/get_order_list":
+            return reply({ order_list: [{ order_sn: "SN1" }, { order_sn: "SN2" }], more: false });
+          case "/api/v2/order/get_order_detail":
+            return reply({
+              order_list: [
+                { order_sn: "SN1", order_status: "COMPLETED", create_time: now - 3600, total_amount: 80, item_list: [{ item_id: 1, item_name: "Caneca", model_quantity_purchased: 2, model_discounted_price: 40 }] },
+                { order_sn: "SN2", order_status: "CANCELLED", create_time: now - 7200, total_amount: 30, item_list: [{ item_id: 2, item_name: "Almofada", model_quantity_purchased: 1, model_discounted_price: 30 }] },
+              ],
+            });
+          case "/api/v2/payment/get_escrow_detail":
+            return reply({ order_income: { commission_fee: 12, service_fee: 4, seller_transaction_fee: 0, actual_shipping_fee: 10, shopee_shipping_rebate: 10 } });
+          case "/api/v2/shop/get_shop_info":
+            return reply({ shop_name: "Ateliê na Shopee" });
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    try {
+      expect(await shopeeSync.syncShopee(shop.id)).toMatchObject({ items: 2, orders: 2, newOrders: 2, escrows: 1 });
+      paths.length = 0;
+      expect(await shopeeSync.syncShopee(shop.id)).toMatchObject({ orders: 2, newOrders: 0, escrows: 0 }); // nada novo: sem extrato de novo
+      expect(paths).not.toContain("/api/v2/payment/get_escrow_detail");
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.SHOPEE_PARTNER_ID;
+      delete process.env.SHOPEE_PARTNER_KEY;
+    }
+
+    const items = await db.query<{ id: string; price: number; available_quantity: number }>(
+      "select id, price, available_quantity from items where account_id = $1 order by id",
+      [shop.id],
+    );
+    expect(items).toEqual([
+      { id: "SHP1", price: 40, available_quantity: 5 },
+      { id: "SHP2", price: 30, available_quantity: 5 }, // variações: menor preço, estoque somado
+    ]);
+    const [sn1] = await db.query<{ status: string; shipping_cost: number }>("select status, shipping_cost from orders where id = 'SN1'");
+    expect(sn1).toEqual({ status: "paid", shipping_cost: 0 });
+    const [line] = await db.query<{ sale_fee: number }>("select sale_fee from order_items where order_id = 'SN1'");
+    expect(line.sale_fee).toBe(8); // 16 de taxas em 2 unidades
+    expect((await db.query("select 1 from orders where id = 'SN2' and status = 'cancelled'")).length).toBe(1);
+    const events = (await data.recentEvents(shop.id)).map((e) => e.title);
+    expect(events).toHaveLength(1); // só a venda paga; a cancelada não vira "nova venda"
+    expect(events[0]).toMatch(/^Nova venda na Shopee: R\$\s80,00$/);
+    expect((await data.accountById(shop.id))?.nickname).toBe("Ateliê na Shopee");
+
+    const r = await report.buildReport(shop.id, A, 7);
+    expect(r.totals).toMatchObject({ revenue: 80, orders: 1, fees: 16 });
     await db.query("delete from ml_accounts where id = $1", [shop.id]);
   });
 

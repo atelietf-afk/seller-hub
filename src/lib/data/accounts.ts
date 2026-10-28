@@ -113,3 +113,15 @@ export async function saveSummary(accountId: string, day: string, content: Daily
     [accountId, day, JSON.stringify(content)],
   );
 }
+
+/** Cadastra ou atualiza a loja da Shopee. Devolve null se ela já pertence a outro usuário. */
+export function linkShopeeShop(ownerId: string, shop: { id: number; name: string | null }) {
+  return one<MlAccount>(
+    `insert into ml_accounts (owner_id, marketplace, ml_user_id, nickname, site_id)
+     values ($1, 'shopee', $2, $3, 'BR')
+     on conflict (marketplace, ml_user_id) do update set nickname = coalesce(excluded.nickname, ml_accounts.nickname)
+       where ml_accounts.owner_id = excluded.owner_id
+     returning *`,
+    [ownerId, shop.id, shop.name],
+  );
+}
