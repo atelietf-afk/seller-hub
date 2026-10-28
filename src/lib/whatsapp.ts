@@ -17,7 +17,15 @@ const KNOWN: Record<number, string> = {
   132012: "o formato das variáveis não bate com o modelo aprovado",
 };
 
-export class WhatsappError extends Error {}
+export class WhatsappError extends Error {
+  /** Resposta da Meta, para o log (ex.: qual nome/idioma de modelo não existe). */
+  constructor(
+    message: string,
+    public detail: string,
+  ) {
+    super(message);
+  }
+}
 
 export async function sendReportTemplate(to: string, msg: ReportMessage): Promise<string> {
   const version = process.env.WHATSAPP_API_VERSION || "v23.0";
@@ -47,5 +55,6 @@ export async function sendReportTemplate(to: string, msg: ReportMessage): Promis
   if (res.ok && id) return id;
   const e = json?.error;
   const known = e?.code !== undefined ? KNOWN[e.code] : undefined;
-  throw new WhatsappError(known ?? `WhatsApp respondeu ${res.status}: ${e?.error_data?.details ?? e?.message ?? "erro desconhecido"}`);
+  const detail = `${res.status} código ${e?.code ?? "?"}: ${e?.message ?? ""} ${e?.error_data?.details ?? ""}`.trim();
+  throw new WhatsappError(known ?? `WhatsApp respondeu ${res.status}: ${e?.error_data?.details ?? e?.message ?? "erro desconhecido"}`, detail);
 }

@@ -19,7 +19,7 @@ export async function deliverReport(accountId: string, ownerId: string, kind: st
     return "sent";
   } catch (err) {
     const msg = err instanceof WhatsappError ? err.message : "falha de conexão com o WhatsApp";
-    console.error("Envio do relatório no WhatsApp falhou", accountId, kind, start, err);
+    console.error("Envio do relatório no WhatsApp falhou", accountId, kind, start, err, err instanceof WhatsappError ? `Meta: ${err.detail}` : "");
     await markWhatsapp(accountId, kind, start, msg);
     return "failed";
   }
