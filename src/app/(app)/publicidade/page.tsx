@@ -10,6 +10,9 @@ import { SubmitButton } from "@/components/SubmitButton";
 import type { AdDecision, AdsTotals, CampaignDiagnosis } from "@/lib/analytics/ads";
 import { buildAdsReport } from "@/lib/ads-report";
 import { settingsOf } from "@/lib/data/accounts";
+import { adsChanges, campaignNames, type AdsChangeRow } from "@/lib/data/ads";
+import { CampaignControls } from "@/components/CampaignControls";
+import { changeEffect, type EffectWindow } from "@/lib/analytics/ad-changes";
 import { brl, dateTime, int, pct } from "@/lib/format";
 import { currentAccount } from "@/lib/session";
 
@@ -18,6 +21,32 @@ const STATUS_LABEL: Record<string, string> = {
   paused: "Pausada",
   idle: "Ociosa",
   hold: "Retida",
+};
+const ACTION_MSG: Record<string, { ok: boolean; text: string }> = {
+  ok: {
+    ok: true,
+    text: "Campanha alterada no Mercado Livre. Os números mudam a partir dos próximos dias; o efeito aparece em Mudanças feitas.",
+  },
+  criada: {
+    ok: true,
+    text: "Campanha criada no Mercado Livre, ativa e sem anúncios. Abra o Mercado Ads e adicione os anúncios com o botão Copiar códigos.",
+  },
+  permissao: {
+    ok: false,
+    text: "O Mercado Livre não deixou o Seller Hub alterar campanhas. No DevCenter, deixe a permissão Publicidade como leitura e escrita e reconecte a conta em Configurações.",
+  },
+  recusado: { ok: false, text: "O Mercado Livre recusou o valor. Confira o orçamento e o ROAS objetivo (de 1x a 35x) e tente de novo." },
+  erro: { ok: false, text: "Não conseguimos falar com o Mercado Livre agora. Tente de novo em alguns minutos." },
+  "valor-invalido": { ok: false, text: "Valor inválido: orçamento entre R$ 1 e R$ 5.000 por dia e ROAS objetivo entre 1x e 35x." },
+  "nao-encontrada": { ok: false, text: "Campanha não encontrada. Sincronize e tente de novo." },
+  "sem-anunciante": { ok: false, text: "Sua conta ainda não tem Product Ads ativo no Mercado Livre." },
+  "ja-existe": { ok: false, text: "Já existe uma campanha com esse nome. Sincronize para vê-la na lista." },
+};
+const FIELD_LABEL: Record<AdsChangeRow["field"], string> = {
+  budget: "Orçamento/dia",
+  roas_target: "ROAS objetivo",
+  status: "Situação",
+  create: "Criação",
 };
 const STRATEGY_LABEL: Record<string, string> = {
   profitability: "Rentabilidade",
@@ -42,12 +71,18 @@ const DECISION: Record<
 const opt = (n: number | null, f: (n: number) => string) => (n === null ? "—" : f(n));
 const roas = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}x`;
 
-export default async function AdsPage({ searchParams }: { searchParams: Promise<{ decisao?: string }> }) {
+export default async function AdsPage({ searchParams }: { searchParams: Promise<{ decisao?: string; acao?: string }> }) {
   const { user, account } = await currentAccount();
   if (!account) return <NoAccount />;
-  const [r, settings] = await Promise.all([buildAdsReport(user.id, account.id), settingsOf(user.id)]);
+  const [r, settings, history, existing] = await Promise.all([
+    buildAdsReport(user.id, account.id),
+    settingsOf(user.id),
+    adsChanges(user.id, account.id),
+    campaignNames(user.id, account.id),
+  ]);
   if (!r) return <NoAccount />;
-  const requested = (await searchParams).decisao;
+  const { decisao: requested, acao } = await searchParams;
+  const action = acao ? ACTION_MSG[acao] : undefined;
   const filter = requested && requested in DECISION ? (requested as AdDecision) : null;
   const t = r.totals;
   const status = r.status.ads_status;
@@ -63,6 +98,10 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
           <SubmitButton pending="Sincronizando…">Sincronizar agora</SubmitButton>
         </form>
       </div>
+
+      {action && (
+        <p className={`rounded-md p-3 text-sm ${action.ok ? "bg-good/10 text-good" : "bg-critical/10 text-critical"}`}>{action.text}</p>
+      )}
 
       {status === null && (
         <p className="rounded-md bg-ink/5 p-3 text-sm">
@@ -119,7 +158,7 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
         )}
       </div>
 
-      <section className="rounded-xl border border-line bg-surface">
+      <section id="campanhas" className="scroll-mt-4 rounded-xl border border-line bg-surface">
         <h2 className="p-4 pb-0 font-semibold">Campanhas</h2>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[960px] text-sm">
@@ -164,8 +203,19 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
                       <Metrics.Cells t={c.totals} />
                     </tr>
                     <tr>
-                      <td colSpan={10} className="px-3 pb-3">
+                      <td colSpan={10} className="space-y-2 px-3 pb-3">
                         <Diagnoses list={c.diagnoses} />
+                        <details className="rounded-md border border-line p-2.5">
+                          <summary className="cursor-pointer text-sm font-medium">Ajustar campanha</summary>
+                          <div className="mt-2">
+                            <CampaignControls
+                              campaign={{ id: c.id, name: c.name, status: c.status, budget: c.budget, roasTarget: c.roas_target }}
+                              suggestBudget={c.diagnoses.find((d) => d.suggest?.budget !== undefined)?.suggest?.budget}
+                              suggestRoas={c.diagnoses.find((d) => d.suggest?.roasTarget !== undefined)?.suggest?.roasTarget}
+                              breakEvenRoas={c.breakEvenRoas}
+                            />
+                          </div>
+                        </details>
                       </td>
                     </tr>
                   </Fragment>
@@ -177,7 +227,7 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
         </div>
       </section>
 
-      {status === "ok" && <AdSuggestions result={r.suggestions} minMargin={settings.min_margin} />}
+      {status === "ok" && <AdSuggestions result={r.suggestions} minMargin={settings.min_margin} existing={existing} />}
 
       <section id="produtos-anunciados" className="scroll-mt-4 rounded-xl border border-line bg-surface">
         <h2 className="p-4 pb-0 font-semibold">Produtos anunciados</h2>
@@ -249,6 +299,8 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
           </>
         )}
       </section>
+
+      {history.changes.length > 0 && <ChangesHistory changes={history.changes} daily={history.daily} />}
 
       <section className="rounded-xl border border-line bg-surface p-4 text-sm text-ink-2">
         <h2 className="mb-2 font-semibold text-ink">Como ler</h2>
@@ -367,5 +419,87 @@ function DecisionFilter({ items, active }: { items: { decision: AdDecision }[]; 
           </Link>
         ))}
     </nav>
+  );
+}
+
+function ChangesHistory({
+  changes,
+  daily,
+}: {
+  changes: AdsChangeRow[];
+  daily: { campaign_id: number; day: string; cost: number; revenue: number }[];
+}) {
+  const now = new Date();
+  const value = (field: AdsChangeRow["field"], v: string | null) => {
+    if (v === null || v === "") return "—";
+    if (field === "budget") return brl(Number(v));
+    if (field === "roas_target") return roas(Number(v));
+    if (field === "status") return STATUS_LABEL[v] ?? v;
+    return v;
+  };
+  const win = (w: EffectWindow | null, pending: number) =>
+    w ? (
+      <span className="tabular-nums">
+        {brl(w.revenue)} · ROAS {opt(w.roas, roas)}
+      </span>
+    ) : (
+      <span className="text-muted">em {pending} dia(s)</span>
+    );
+  return (
+    <section className="rounded-xl border border-line bg-surface">
+      <div className="p-4 pb-0">
+        <h2 className="font-semibold">Mudanças feitas pelo Seller Hub</h2>
+        <p className="text-xs text-muted">
+          Vendas com anúncio e ROAS nos 7 dias antes da mudança contra os 7 e 14 dias depois. O Mercado Livre leva até 14 dias para atribuir
+          as vendas, então o de 7 dias é uma prévia.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-sm">
+          <thead className="border-b border-line text-left text-xs text-muted">
+            <tr>
+              <th className="p-3 font-medium">Quando</th>
+              <th className="p-3 font-medium">Campanha</th>
+              <th className="p-3 font-medium">Mudança</th>
+              <th className="p-3 font-medium">7 dias antes</th>
+              <th className="p-3 font-medium">7 dias depois</th>
+              <th className="p-3 font-medium">14 dias depois</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {changes.map((c) => {
+              const e =
+                c.ok && c.campaign_id !== null && c.field !== "create"
+                  ? changeEffect(
+                      daily
+                        .filter((d) => Number(d.campaign_id) === Number(c.campaign_id))
+                        .map((d) => ({ ...d, day: String(d.day).slice(0, 10) })),
+                      c.created_at,
+                      now,
+                    )
+                  : null;
+              return (
+                <tr key={c.id} className="align-top">
+                  <td className="p-3 whitespace-nowrap text-muted">{dateTime(c.created_at)}</td>
+                  <td className="p-3 font-medium">{c.campaign_name}</td>
+                  <td className="p-3">
+                    {FIELD_LABEL[c.field]}:{" "}
+                    {c.field === "create" ? c.after_value : `${value(c.field, c.before_value)} → ${value(c.field, c.after_value)}`}
+                    {!c.ok && (
+                      <p className="mt-1 text-xs text-critical" title={c.error ?? undefined}>
+                        Não aplicada no Mercado Livre.
+                      </p>
+                    )}
+                  </td>
+                  <td className="p-3">{e ? win(e.before, 0) : "—"}</td>
+                  <td className="p-3">{e ? win(e.after7, 7 - e.daysSince) : "—"}</td>
+                  <td className="p-3">{e ? win(e.after14, 14 - e.daysSince) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

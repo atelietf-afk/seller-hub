@@ -44,15 +44,30 @@ export class MlApi {
     }
   }
 
-  async post<T>(path: string, body: unknown): Promise<T> {
+  /** Escrita. Sem nova tentativa automática: repetir um POST poderia criar algo em dobro. */
+  async send<T>(method: "POST" | "PUT", path: string, body: unknown, init: { headers?: Record<string, string> } = {}): Promise<T> {
     const res = await this.fetchFn(`${ML_API}${path}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${await this.getToken()}`, Accept: "application/json", "Content-Type": "application/json" },
+      method,
+      headers: {
+        Authorization: `Bearer ${await this.getToken()}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...init.headers,
+      },
       body: JSON.stringify(body),
       cache: "no-store",
     });
     if (!res.ok) throw new MlApiError(res.status, path, await res.text());
-    return (await res.json()) as T;
+    const text = await res.text();
+    return (text ? JSON.parse(text) : {}) as T;
+  }
+
+  post<T>(path: string, body: unknown, init: { headers?: Record<string, string> } = {}): Promise<T> {
+    return this.send<T>("POST", path, body, init);
+  }
+
+  put<T>(path: string, body: unknown, init: { headers?: Record<string, string> } = {}): Promise<T> {
+    return this.send<T>("PUT", path, body, init);
   }
 
   me() {

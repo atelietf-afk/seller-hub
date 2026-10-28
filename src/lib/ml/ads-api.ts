@@ -59,6 +59,25 @@ export interface AdsCampaign extends AdsMetrics {
   acosBenchmark: number | null;
 }
 
+export type CampaignStrategy = "profitability" | "increase" | "visibility";
+
+/** Campos que a API aceita na alteração (pelo menos um). */
+export interface CampaignChange {
+  budget?: number;
+  roas_target?: number;
+  status?: "active" | "paused";
+  strategy?: CampaignStrategy;
+  name?: string;
+}
+
+export interface NewCampaign {
+  name: string;
+  status: "active" | "paused";
+  budget: number;
+  strategy: CampaignStrategy;
+  roas_target: number;
+}
+
 export interface AdsDailyRow extends AdsMetrics {
   campaignId: number;
   day: string;
@@ -237,6 +256,42 @@ export class MlAdsApi {
       ),
     );
     return parseDaily(rows);
+  }
+
+  // Escrita ---------------------------------------------------------------
+  // Caminhos da documentação de Product Ads (api-version 2). O prefixo /marketplace é o
+  // que responde para leitura nesta conta; o sem prefixo fica de reserva.
+
+  /** Altera orçamento, ROAS objetivo, estado ou estratégia de uma campanha. */
+  async updateCampaign(a: Advertiser, campaignId: number, change: CampaignChange): Promise<void> {
+    await this.firstWritable("PUT", [
+      `/marketplace/advertising/${a.siteId}/product_ads/campaigns/${campaignId}`,
+      `/advertising/${a.siteId}/product_ads/campaigns/${campaignId}`,
+    ], change);
+  }
+
+  /** Cria uma campanha (sem anúncios: eles são adicionados no Mercado Ads). Devolve o id. */
+  async createCampaign(a: Advertiser, c: NewCampaign): Promise<number | null> {
+    const body = await this.firstWritable<Obj>("POST", [
+      `/marketplace/advertising/${a.siteId}/advertisers/${a.advertiserId}/product_ads/campaigns`,
+      `/advertising/${a.siteId}/advertisers/${a.advertiserId}/product_ads/campaigns`,
+    ], { channel: "marketplace", ...c });
+    const id = body.id ?? body.campaign_id;
+    return id != null ? num(id) : null;
+  }
+
+  /** Tenta o próximo caminho só quando o anterior não existe (404/405); outros erros sobem. */
+  private async firstWritable<T>(method: "PUT" | "POST", paths: string[], body: unknown): Promise<T> {
+    let last: unknown;
+    for (const path of paths) {
+      try {
+        return await this.api.send<T>(method, path, body, { headers: { "api-version": "2" } });
+      } catch (err) {
+        last = err;
+        if (!(err instanceof MlApiError) || ![404, 405].includes(err.status)) throw err;
+      }
+    }
+    throw last;
   }
 
   /** De onde vieram as métricas por anúncio na última chamada a items() (para diagnóstico). */

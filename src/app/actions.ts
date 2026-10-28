@@ -25,6 +25,11 @@ import { parseMoney } from "@/lib/format";
 import { syncAccount } from "@/lib/ml/sync";
 import { currentAccount, currentUser } from "@/lib/session";
 import { createDailySummary } from "@/lib/summaries";
+import * as adsData from "@/lib/data/ads";
+import { parseBudget, parseRoas } from "@/lib/analytics/ad-changes";
+import { KINDS, type SuggestionKind } from "@/lib/analytics/ad-suggestions";
+import { buildAdsReport } from "@/lib/ads-report";
+import { MlAdsApi, type CampaignChange, type CampaignStrategy } from "@/lib/ml/ads-api";
 
 // Login -------------------------------------------------------------------
 
@@ -229,6 +234,140 @@ export async function sendReportWhatsapp(formData: FormData) {
   const result = await deliverReport(account.id, account.owner_id, kind, start);
   revalidatePath(`/relatorios/${kind}/${start}`);
   redirect(`/relatorios/${kind}/${start}?whatsapp=${DELIVERY_PARAM[result]}`);
+}
+
+// Publicidade: alterar e criar campanhas ------------------------------------
+
+/** Motivo para a tela quando o ML recusa a escrita. */
+function adsWriteError(err: unknown): string {
+  if (err instanceof MlApiError) {
+    if (err.status === 401 || err.status === 403) return "permissao";
+    if (err.status === 400 || err.status === 422) return "recusado";
+  }
+  return "erro";
+}
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message.slice(0, 500) : String(err));
+const backToAds = (acao: string, anchor = "campanhas") => redirect(`/publicidade?acao=${acao}#${anchor}`);
+
+export async function updateCampaignAction(formData: FormData) {
+  const account = await ownAccount();
+  const field = String(formData.get("field"));
+  const raw = String(formData.get("value") ?? "");
+  const c = await adsData.ownCampaign(account.owner_id, account.id, Number(formData.get("campaignId")));
+  if (!c) return backToAds("nao-encontrada");
+  if (!c.advertiser_id) return backToAds("sem-anunciante");
+
+  let change: CampaignChange;
+  let after: string;
+  let value: string | number;
+  if (field === "budget") {
+    const v = parseBudget(raw);
+    if (v === null) return backToAds("valor-invalido");
+    change = { budget: v };
+    after = String(v);
+    value = v;
+  } else if (field === "roas_target") {
+    const v = parseRoas(raw);
+    if (v === null) return backToAds("valor-invalido");
+    change = { roas_target: v };
+    after = String(v);
+    value = v;
+  } else if (field === "status" && (raw === "active" || raw === "paused")) {
+    change = { status: raw };
+    after = raw;
+    value = raw;
+  } else {
+    return backToAds("valor-invalido");
+  }
+  const before = String(c[field as "budget" | "roas_target" | "status"] ?? "");
+
+  let failure: string | null = null;
+  try {
+    await new MlAdsApi(apiFor(account.id)).updateCampaign({ advertiserId: c.advertiser_id, siteId: c.site_id }, c.id, change);
+  } catch (err) {
+    console.error("Alteração de campanha falhou", account.id, c.id, change, err);
+    failure = adsWriteError(err);
+    await adsData.recordAdsChange(account.owner_id, account.id, {
+      campaign_id: c.id,
+      campaign_name: c.name,
+      field: field as adsData.CampaignField,
+      before_value: before,
+      after_value: after,
+      ok: false,
+      error: errorText(err),
+    });
+  }
+  if (failure) return backToAds(failure);
+
+  await adsData.setCampaignField(account.owner_id, account.id, c.id, field as adsData.CampaignField, value);
+  await adsData.recordAdsChange(account.owner_id, account.id, {
+    campaign_id: c.id,
+    campaign_name: c.name,
+    field: field as adsData.CampaignField,
+    before_value: before,
+    after_value: after,
+    ok: true,
+    error: null,
+  });
+  console.info("Campanha alterada", account.id, c.id, JSON.stringify(change));
+  revalidatePath("/publicidade");
+  backToAds("ok");
+}
+
+export async function createSuggestedCampaignAction(formData: FormData) {
+  const account = await ownAccount();
+  const kind = String(formData.get("kind")) as SuggestionKind;
+  if (!(kind in KINDS)) return backToAds("valor-invalido", "sugestoes");
+  const budget = parseBudget(String(formData.get("budget") ?? ""));
+  const roas = parseRoas(String(formData.get("roasTarget") ?? ""));
+  if (budget === null || roas === null) return backToAds("valor-invalido", "sugestoes");
+
+  // Recalcula a sugestão no servidor: nome e estratégia não vêm do navegador.
+  const report = await buildAdsReport(account.owner_id, account.id);
+  const s = report?.suggestions.suggestions.find((x) => x.kind === kind);
+  if (!s) return backToAds("nao-encontrada", "sugestoes");
+  const adv = await adsData.ownAdvertiser(account.owner_id, account.id);
+  if (!adv?.advertiser_id) return backToAds("sem-anunciante", "sugestoes");
+  if ((await adsData.campaignNames(account.owner_id, account.id)).has(s.name)) return backToAds("ja-existe", "sugestoes");
+
+  const strategy = s.strategy.toLowerCase() as CampaignStrategy;
+  const summary = `orçamento ${budget} · ROAS ${roas} · ${strategy}`;
+  let id: number | null = null;
+  let failure: string | null = null;
+  try {
+    id = await new MlAdsApi(apiFor(account.id)).createCampaign(
+      { advertiserId: adv.advertiser_id, siteId: adv.site_id },
+      { name: s.name, status: "active", budget, strategy, roas_target: roas },
+    );
+  } catch (err) {
+    console.error("Criação de campanha falhou", account.id, s.name, err);
+    failure = adsWriteError(err);
+    await adsData.recordAdsChange(account.owner_id, account.id, {
+      campaign_id: null,
+      campaign_name: s.name,
+      field: "create",
+      before_value: null,
+      after_value: summary,
+      ok: false,
+      error: errorText(err),
+    });
+  }
+  if (failure) return backToAds(failure, "sugestoes");
+
+  if (id !== null) await adsData.insertCreatedCampaign(account.owner_id, account.id, { id, name: s.name, strategy: s.strategy, budget, roasTarget: roas });
+  await adsData.recordAdsChange(account.owner_id, account.id, {
+    campaign_id: id,
+    campaign_name: s.name,
+    field: "create",
+    before_value: null,
+    after_value: summary,
+    ok: true,
+    error: null,
+  });
+  console.info("Campanha criada", account.id, id, s.name, summary);
+  revalidatePath("/publicidade");
+  backToAds("criada", "sugestoes");
 }
 
 // Perguntas -----------------------------------------------------------------

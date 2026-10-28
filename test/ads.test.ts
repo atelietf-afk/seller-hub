@@ -8,7 +8,8 @@ import {
   tacos,
   type CampaignInput,
 } from "@/lib/analytics/ads";
-import { parseDaily, readMetrics, toFraction } from "@/lib/ml/ads-api";
+import { MlApi } from "@/lib/ml/api";
+import { MlAdsApi, parseDaily, readMetrics, toFraction } from "@/lib/ml/ads-api";
 
 const m = (over = {}) => ({ clicks: 100, prints: 10_000, cost: 50, revenue: 500, units: 5, ...over });
 
@@ -166,5 +167,51 @@ describe("adDecision", () => {
     expect(adDecision(ad({ margin: null })).decision).toBe("cadastrar_custo");
     expect(adDecision(ad({ cost: 100, revenue: 500 })).decision).toBe("manter");
     expect(adDecision(ad({ clicks: 10, prints: 20_000 })).decision).toBe("revisar");
+  });
+});
+
+
+describe("escrita em campanhas", () => {
+  const adv = { advertiserId: 9, siteId: "MLB" };
+  const recorder = (responses: Response[]) => {
+    const calls: { url: string; method: string; headers: Record<string, string>; body: unknown }[] = [];
+    const fetchFn = (async (url: string, init: RequestInit) => {
+      calls.push({ url, method: String(init.method), headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) });
+      return responses.shift()!;
+    }) as unknown as typeof fetch;
+    return { calls, ads: new MlAdsApi(new MlApi(async () => "tok", fetchFn)) };
+  };
+
+  it("altera a campanha com PUT, api-version 2 e só o campo mudado", async () => {
+    const { calls, ads } = recorder([new Response("{}", { status: 200 })]);
+    await ads.updateCampaign(adv, 5, { roas_target: 4.5 });
+    expect(calls).toEqual([
+      {
+        url: "https://api.mercadolibre.com/marketplace/advertising/MLB/product_ads/campaigns/5",
+        method: "PUT",
+        headers: expect.objectContaining({ "api-version": "2", Authorization: "Bearer tok" }),
+        body: { roas_target: 4.5 },
+      },
+    ]);
+  });
+
+  it("cai no caminho sem /marketplace só se o primeiro não existir", async () => {
+    const { calls, ads } = recorder([new Response("not found", { status: 404 }), new Response("", { status: 200 })]);
+    await ads.updateCampaign(adv, 5, { status: "paused" });
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://api.mercadolibre.com/marketplace/advertising/MLB/product_ads/campaigns/5",
+      "https://api.mercadolibre.com/advertising/MLB/product_ads/campaigns/5",
+    ]);
+    const denied = recorder([new Response("forbidden", { status: 403 })]);
+    await expect(denied.ads.updateCampaign(adv, 5, { budget: 10 })).rejects.toMatchObject({ status: 403 });
+    expect(denied.calls).toHaveLength(1); // permissão negada não tenta outro caminho
+  });
+
+  it("cria a campanha com POST no anunciante e devolve o id", async () => {
+    const { calls, ads } = recorder([new Response(JSON.stringify({ id: 321 }), { status: 201 })]);
+    const id = await ads.createCampaign(adv, { name: "Seller Hub · Lançamentos", status: "active", budget: 10, strategy: "visibility", roas_target: 2.5 });
+    expect(id).toBe(321);
+    expect(calls[0].url).toBe("https://api.mercadolibre.com/marketplace/advertising/MLB/advertisers/9/product_ads/campaigns");
+    expect(calls[0].body).toEqual({ channel: "marketplace", name: "Seller Hub · Lançamentos", status: "active", budget: 10, strategy: "visibility", roas_target: 2.5 });
   });
 });

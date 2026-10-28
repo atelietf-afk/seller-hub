@@ -103,3 +103,112 @@ export async function adsData(ownerId: string, accountId: string, days: number) 
   ]);
   return { status, campaigns, daily, items, weeks, listedAt: new Map(listed.map((l) => [l.id, l.listed_at])) };
 }
+
+// Escrita em campanhas --------------------------------------------------------
+
+export interface OwnCampaign {
+  id: number;
+  name: string;
+  status: string | null;
+  strategy: string | null;
+  budget: number | null;
+  roas_target: number | null;
+  advertiser_id: number | null;
+  site_id: string;
+}
+
+/** A campanha, só se for de uma conta do usuário. */
+export function ownCampaign(ownerId: string, accountId: string, campaignId: number) {
+  return one<OwnCampaign>(
+    `select c.id, c.name, c.status, c.strategy, c.budget, c.roas_target, a.ads_advertiser_id as advertiser_id, a.site_id
+     from ads_campaigns c join ml_accounts a on a.id = c.account_id and a.owner_id = $2
+     where c.account_id = $1 and c.id = $3`,
+    [accountId, ownerId, campaignId],
+  );
+}
+
+/** Conta de anunciante do usuário (para criar campanha). */
+export function ownAdvertiser(ownerId: string, accountId: string) {
+  return one<{ advertiser_id: number | null; site_id: string }>(
+    "select ads_advertiser_id as advertiser_id, site_id from ml_accounts where id = $1 and owner_id = $2",
+    [accountId, ownerId],
+  );
+}
+
+/** Nomes de campanhas que já existem na conta (para não criar duplicada). */
+export async function campaignNames(ownerId: string, accountId: string) {
+  const rows = await query<{ name: string }>(
+    `select c.name from ads_campaigns c join ml_accounts a on a.id = c.account_id and a.owner_id = $2 where c.account_id = $1`,
+    [accountId, ownerId],
+  );
+  return new Set(rows.map((r) => r.name));
+}
+
+export type CampaignField = "budget" | "roas_target" | "status";
+
+/** Reflete na hora a mudança aceita pelo ML (a próxima sincronização confirma). Só na campanha do usuário. */
+export async function setCampaignField(ownerId: string, accountId: string, campaignId: number, field: CampaignField, value: string | number) {
+  const column = { budget: "budget", roas_target: "roas_target", status: "status" }[field];
+  await query(
+    `update ads_campaigns c set ${column} = $4, updated_at = now() from ml_accounts a
+     where a.id = c.account_id and a.owner_id = $2 and c.account_id = $1 and c.id = $3`,
+    [accountId, ownerId, campaignId, value],
+  );
+}
+
+/** Guarda a campanha recém-criada até a próxima sincronização trazer os números. */
+export async function insertCreatedCampaign(
+  ownerId: string,
+  accountId: string,
+  c: { id: number; name: string; strategy: string; budget: number; roasTarget: number },
+) {
+  await query(
+    `insert into ads_campaigns (account_id, id, name, status, strategy, budget, roas_target)
+     select a.id, $3, $4, 'active', $5, $6, $7 from ml_accounts a where a.id = $1 and a.owner_id = $2
+     on conflict (account_id, id) do nothing`,
+    [accountId, ownerId, c.id, c.name, c.strategy, c.budget, c.roasTarget],
+  );
+}
+
+export interface AdsChangeRow {
+  id: number;
+  campaign_id: number | null;
+  campaign_name: string;
+  field: CampaignField | "create";
+  before_value: string | null;
+  after_value: string;
+  ok: boolean;
+  error: string | null;
+  created_at: string;
+}
+
+export async function recordAdsChange(
+  ownerId: string,
+  accountId: string,
+  c: Omit<AdsChangeRow, "id" | "created_at">,
+) {
+  await query(
+    `insert into ads_changes (account_id, campaign_id, campaign_name, field, before_value, after_value, ok, error)
+     select a.id, $3, $4, $5, $6, $7, $8, $9 from ml_accounts a where a.id = $1 and a.owner_id = $2`,
+    [accountId, ownerId, c.campaign_id, c.campaign_name, c.field, c.before_value, c.after_value, c.ok, c.error],
+  );
+}
+
+/** Mudanças dos últimos 60 dias e as métricas diárias das campanhas envolvidas, para medir o efeito. */
+export async function adsChanges(ownerId: string, accountId: string) {
+  const changes = await query<AdsChangeRow>(
+    `select x.id, x.campaign_id, x.campaign_name, x.field, x.before_value, x.after_value, x.ok, x.error, x.created_at
+     from ads_changes x join ml_accounts a on a.id = x.account_id and a.owner_id = $2
+     where x.account_id = $1 and x.created_at > now() - interval '60 days'
+     order by x.created_at desc limit 50`,
+    [accountId, ownerId],
+  );
+  const ids = [...new Set(changes.filter((c) => c.ok && c.campaign_id !== null).map((c) => c.campaign_id!))];
+  const daily = ids.length
+    ? await query<{ campaign_id: number; day: string; cost: number; revenue: number }>(
+        `select campaign_id, day, cost, revenue from ads_campaign_daily where account_id = $1 and campaign_id = any($2::bigint[])`,
+        [accountId, ids],
+      )
+    : [];
+  return { changes, daily };
+}

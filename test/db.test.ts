@@ -25,6 +25,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let questionsData: typeof import("@/lib/data/questions");
   let delivery: typeof import("@/lib/report-delivery");
   let sales: typeof import("@/lib/data/sales");
+  let adsData: typeof import("@/lib/data/ads");
   const A = "user-a";
   const B = "user-b";
   let accA: string;
@@ -54,6 +55,7 @@ describe.skipIf(!url)("banco de dados", () => {
     questionsData = await import("@/lib/data/questions");
     delivery = await import("@/lib/report-delivery");
     sales = await import("@/lib/data/sales");
+    adsData = await import("@/lib/data/ads");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
@@ -228,6 +230,35 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(r.suggestions.skipped.noCost).toBe(1);
 
     expect(await adsReport.buildAdsReport(B, accA)).toBeNull();
+  });
+
+  it("altera e cria campanhas só na conta do dono e guarda o histórico", async () => {
+    // a campanha 5 da conta A veio da sincronização anterior
+    expect(await adsData.ownCampaign(B, accA, 5)).toBeNull();
+    const c = await adsData.ownCampaign(A, accA, 5);
+    expect(c).toMatchObject({ id: 5, name: "Fones", advertiser_id: 9, site_id: "MLB" });
+
+    await adsData.setCampaignField(B, accA, 5, "budget", 999); // não é dono: nada muda
+    await adsData.setCampaignField(A, accA, 5, "budget", 45);
+    await adsData.setCampaignField(A, accA, 5, "status", "paused");
+    expect(await adsData.ownCampaign(A, accA, 5)).toMatchObject({ budget: 45, status: "paused" });
+
+    await adsData.recordAdsChange(A, accA, { campaign_id: 5, campaign_name: "Fones", field: "budget", before_value: "30", after_value: "45", ok: true, error: null });
+    await adsData.recordAdsChange(B, accA, { campaign_id: 5, campaign_name: "Fones", field: "budget", before_value: "45", after_value: "1", ok: true, error: null });
+    const h = await adsData.adsChanges(A, accA);
+    expect(h.changes).toHaveLength(1);
+    expect(h.changes[0]).toMatchObject({ field: "budget", before_value: "30", after_value: "45", ok: true });
+    expect(h.daily.length).toBeGreaterThan(0); // métricas diárias da campanha para medir o efeito
+    expect((await adsData.adsChanges(B, accA)).changes).toEqual([]);
+
+    await adsData.insertCreatedCampaign(B, accA, { id: 99, name: "Invasora", strategy: "PROFITABILITY", budget: 10, roasTarget: 3 });
+    await adsData.insertCreatedCampaign(A, accA, { id: 98, name: "Seller Hub · Lançamentos", strategy: "VISIBILITY", budget: 10, roasTarget: 2.5 });
+    const names = await adsData.campaignNames(A, accA);
+    expect(names.has("Seller Hub · Lançamentos")).toBe(true);
+    expect(names.has("Invasora")).toBe(false);
+    expect((await adsData.campaignNames(B, accA)).size).toBe(0);
+    expect(await adsData.ownAdvertiser(B, accA)).toBeNull();
+    await db.query("delete from ads_campaigns where account_id = $1 and id = 98", [accA]);
   });
 
   it("segue sem as métricas de leilão quando a API recusa e o caminho antigo dá 404", async () => {
