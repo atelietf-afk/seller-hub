@@ -20,10 +20,7 @@ export function SubmitButton({
 }) {
   const status = useFormStatus();
   return (
-    <button
-      disabled={status.pending}
-      className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${STYLES[variant]} ${className}`}
-    >
+    <button disabled={status.pending} className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${STYLES[variant]} ${className}`}>
       {status.pending ? (pending ?? "Aguarde…") : children}
     </button>
   );

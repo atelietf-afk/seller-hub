@@ -3,7 +3,13 @@
 import { selectAccount } from "@/app/actions";
 
 // Troca a conta que as telas mostram (cada marketplace conectado é uma conta).
-export function AccountSwitcher({ accounts, current }: { accounts: { id: string; label: string }[]; current: string }) {
+export function AccountSwitcher({
+  accounts,
+  current,
+}: {
+  accounts: { id: string; label: string }[];
+  current: string;
+}) {
   return (
     <form action={selectAccount}>
       <label className="sr-only" htmlFor="conta">

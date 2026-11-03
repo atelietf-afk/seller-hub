@@ -13,8 +13,7 @@ const STATUS: Record<string, { label: string; severity: "warning" | "critical" |
 };
 
 const MAX_ROWS = 15;
-const hour = (iso: string) =>
-  new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+const hour = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
 
 // Vendas do dia no painel: totais de hoje contra ontem até o mesmo horário e a lista de pedidos.
 export function TodaySales({ data, now }: { data: Today; now: Date }) {
@@ -27,19 +26,9 @@ export function TodaySales({ data, now }: { data: Today; now: Date }) {
     <section className="space-y-3">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Faturamento hoje" value={brl(t.revenue)} delta={change(t.revenue, y.revenue)} hint={`${untilNow}: ${brl(y.revenue)}`} />
-        <Kpi
-          label="Vendas hoje"
-          value={int(t.orders)}
-          delta={change(t.orders, y.orders)}
-          hint={`${int(t.units)} unidades · ontem ${int(y.orders)}`}
-        />
+        <Kpi label="Vendas hoje" value={int(t.orders)} delta={change(t.orders, y.orders)} hint={`${int(t.units)} unidades · ontem ${int(y.orders)}`} />
         <Kpi label="Lucro hoje" value={brl(t.profit)} delta={change(t.profit, y.profit)} hint={t.orders ? missingCost : untilNow} />
-        <Kpi
-          label="Ticket médio hoje"
-          value={brl(t.avgTicket)}
-          delta={change(t.avgTicket, y.avgTicket)}
-          hint={`ontem ${brl(y.avgTicket)}`}
-        />
+        <Kpi label="Ticket médio hoje" value={brl(t.avgTicket)} delta={change(t.avgTicket, y.avgTicket)} hint={`ontem ${brl(y.avgTicket)}`} />
       </div>
 
       <div className="rounded-xl border border-line bg-surface p-4">
@@ -92,9 +81,7 @@ function OrderRow({ o }: { o: TodayOrder }) {
           )}
         </p>
       </div>
-      <span className={`shrink-0 font-medium tabular-nums ${o.status === "cancelled" ? "text-muted line-through" : ""}`}>
-        {brl(o.revenue)}
-      </span>
+      <span className={`shrink-0 font-medium tabular-nums ${o.status === "cancelled" ? "text-muted line-through" : ""}`}>{brl(o.revenue)}</span>
     </li>
   );
 }
