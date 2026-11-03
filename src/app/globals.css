@@ -7,8 +7,8 @@
   --text: #0b0b0b;
   --text-2: #52514e;
   --muted: #8a8984;
-  --accent: #2a78d6;
-  --series-1: #2a78d6;
+  --accent: #1a5ad7;
+  --series-1: #1a5ad7;
   --series-2: #eb6834;
   --good: #0ca30c;
   --warning: #fab219;
@@ -24,8 +24,8 @@
     --text: #f0efec;
     --text-2: #c3c2b7;
     --muted: #8f8e88;
-    --accent: #3987e5;
-    --series-1: #3987e5;
+    --accent: #3d82ef;
+    --series-1: #3d82ef;
     --series-2: #d95926;
   }
 }
@@ -38,6 +38,10 @@
   --color-ink-2: var(--text-2);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  /* cores da logomarca */
+  --color-brand-navy: #04174a;
+  --color-brand-blue: #0246d2;
+  --color-brand-sky: #5fb2ff;
   --color-good: var(--good);
   --color-warning: var(--warning);
   --color-serious: var(--serious);

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { acceptInviteAction } from "../../actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { normalizeEmail, ROLE_HINT, ROLE_LABEL } from "@/lib/analytics/team";
@@ -15,7 +16,13 @@ const ERRORS: Record<string, string> = {
 };
 
 // Convite para a equipe: a pessoa entra (ou cria a conta) com o e-mail convidado e aceita.
-export default async function InvitePage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ erro?: string }> }) {
+export default async function InvitePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ erro?: string }>;
+}) {
   const user = await signedInUser();
   const { token } = await params;
   const { erro } = await searchParams;
@@ -34,12 +41,16 @@ export default async function InvitePage({ params, searchParams }: { params: Pro
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
+      <div className="mb-6">
+        <Logo />
+      </div>
       <div className="rounded-xl border border-line bg-surface p-6">
         <h1 className="text-xl font-semibold">Convite para a equipe</h1>
         {invite && (
           <p className="mt-2 text-sm text-ink-2">
-            <strong>{invite.owner_email}</strong> convidou <strong>{invite.email}</strong> para acompanhar as lojas no Seller Hub com o perfil{" "}
-            <strong>{ROLE_LABEL[invite.role]}</strong>: {ROLE_HINT[invite.role].toLowerCase()} Vale até {dateOnly(invite.expires_at)}.
+            <strong>{invite.owner_email}</strong> convidou <strong>{invite.email}</strong> para acompanhar as lojas no Seller Hub com o
+            perfil <strong>{ROLE_LABEL[invite.role]}</strong>: {ROLE_HINT[invite.role].toLowerCase()} Vale até {dateOnly(invite.expires_at)}
+            .
           </p>
         )}
         {problem ? (

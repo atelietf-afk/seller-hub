@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { changePasswordAction, signOut } from "../actions";
 import { TwoFactorSetup } from "./TwoFactorSetup";
 import { PASSWORD_MIN, passwordExpiresAt, pendingSecurityStep } from "@/lib/analytics/security";
@@ -20,6 +21,9 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
 
   return (
     <main className="mx-auto max-w-lg px-4 py-10">
+      <div className="mb-6">
+        <Logo />
+      </div>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Segurança da conta</h1>
         <form action={signOut}>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { verifyLoginCode } from "../../actions";
 import { safeNext } from "@/lib/next-path";
 
@@ -8,6 +9,9 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
   const next = safeNext(rawNext);
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-4">
+      <div className="mb-6">
+        <Logo />
+      </div>
       <h1 className="text-2xl font-semibold">Verificação em duas etapas</h1>
       <p className="mt-1 text-sm text-ink-2">Abra o aplicativo autenticador no celular e digite o código do Seller Hub.</p>
       {erro && (

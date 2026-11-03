@@ -28,7 +28,15 @@ export function SalesChart({ data }: { data: DayPoint[] }) {
             cursor={{ stroke: "var(--muted)", strokeDasharray: "3 3" }}
           />
           <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-2)" }} />
-          <Line type="monotone" dataKey="revenue" name="Faturamento" stroke="var(--series-1)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+          <Line
+            type="monotone"
+            dataKey="revenue"
+            name="Faturamento"
+            stroke="var(--series-1)"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
           <Line type="monotone" dataKey="profit" name="Lucro" stroke="var(--series-2)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
         </LineChart>
       </ResponsiveContainer>

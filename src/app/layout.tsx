@@ -5,8 +5,8 @@ import "./globals.css";
 const geist = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Seller Hub",
-  description: "Análise em tempo real para vendedores do Mercado Livre",
+  title: { default: "Seller Hub Ideal", template: "%s · Seller Hub Ideal" },
+  description: "Gestão de marketplaces: vendas, lucro, anúncios e publicidade de Mercado Livre, Shopee e Amazon em um só lugar",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

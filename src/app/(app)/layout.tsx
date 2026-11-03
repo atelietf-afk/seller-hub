@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { signOut } from "../actions";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
+import { Logo } from "@/components/Logo";
+import { MainNav } from "@/components/MainNav";
 import { ROLE_LABEL } from "@/lib/analytics/team";
 import { MARKETPLACE_SHORT } from "@/lib/marketplaces";
 import { currentAccount } from "@/lib/session";
@@ -23,16 +25,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen">
       <header className="no-print border-b border-line bg-surface">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <Link href="/dashboard" className="font-semibold">
-            Seller Hub
+          <Link href="/dashboard" aria-label="Seller Hub Ideal — Painel">
+            <Logo />
           </Link>
-          <nav className="flex flex-wrap gap-4 text-sm text-ink-2">
-            {NAV.map((n) => (
-              <Link key={n.href} href={n.href} className="hover:text-ink">
-                {n.label}
-              </Link>
-            ))}
-          </nav>
           <div className="ml-auto flex items-center gap-3 text-sm text-muted">
             {account && accounts.length > 1 ? (
               <AccountSwitcher accounts={accounts.map((a) => ({ id: a.id, label: label(a) }))} current={account.id} />
@@ -45,6 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </form>
           </div>
         </div>
+        <MainNav items={NAV} />
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
     </div>

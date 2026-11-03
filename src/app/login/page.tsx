@@ -1,4 +1,5 @@
 import { signIn, signUp } from "../actions";
+import { Logo } from "@/components/Logo";
 import { safeNext } from "@/lib/next-path";
 
 const ERRORS: Record<string, string> = {
@@ -11,8 +12,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const next = safeNext(rawNext);
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-4">
-      <h1 className="text-2xl font-semibold">Seller Hub</h1>
-      <p className="mt-1 text-sm text-ink-2">Tudo o que acontece na sua loja, em um só lugar.</p>
+      <h1 className="sr-only">Seller Hub Ideal</h1>
+      <Logo size="lg" />
+      <p className="mt-4 text-sm text-ink-2">Tudo o que acontece nas suas lojas, em um só lugar.</p>
       {erro && <p className="mt-4 rounded-md bg-critical/10 p-3 text-sm text-critical">{ERRORS[erro] ?? erro}</p>}
       {next && (
         <p className="mt-4 rounded-md bg-ink/5 p-3 text-sm">
