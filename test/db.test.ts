@@ -30,6 +30,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let shopeeTokens: typeof import("@/lib/shopee/tokens");
   let amazonSync: typeof import("@/lib/amazon/sync");
   let amazonTokens: typeof import("@/lib/amazon/tokens");
+  let catalog: typeof import("@/lib/data/catalog");
   let team: typeof import("@/lib/data/team");
   const A = "user-a";
   const B = "user-b";
@@ -65,13 +66,17 @@ describe.skipIf(!url)("banco de dados", () => {
     shopeeTokens = await import("@/lib/shopee/tokens");
     amazonSync = await import("@/lib/amazon/sync");
     amazonTokens = await import("@/lib/amazon/tokens");
+    catalog = await import("@/lib/data/catalog");
     team = await import("@/lib/data/team");
 
     await db.query("drop schema public cascade; create schema public;");
     const dir = new URL("../db/migrations/", import.meta.url);
     for (const f of (await readdir(dir)).filter((f) => f.endsWith(".sql")).sort()) await db.query(await readFile(new URL(f, dir), "utf8"));
     auth = await import("@/lib/auth"); // o Better Auth confere as tabelas ao iniciar
-    await db.query(`insert into "user" (id, name, email, "emailVerified") values ($1, 'A', 'a@x.com', true), ($2, 'B', 'b@x.com', true)`, [A, B]);
+    await db.query(`insert into "user" (id, name, email, "emailVerified") values ($1, 'A', 'a@x.com', true), ($2, 'B', 'b@x.com', true)`, [
+      A,
+      B,
+    ]);
     accA = (await data.linkAccount(A, { id: 1, nickname: "loja_a", site_id: "MLB", reputation: { level_id: "5_green" } }))!.id;
     accB = (await data.linkAccount(B, { id: 2, nickname: "loja_b", site_id: "MLB", reputation: null }))!.id;
     const item = (id: string) => ({ id, title: id, price: 100, available_quantity: 10, sold_quantity: 0, status: "active" });
@@ -143,7 +148,17 @@ describe.skipIf(!url)("banco de dados", () => {
 
     const r = await report.buildReport(accA, A, 7);
     // 200 de venda − 28 comissão − 20 frete − 12 imposto (6%) − 84 custo = 56
-    expect(r.totals).toMatchObject({ revenue: 200, fees: 28, shipping: 20, tax: 12, productCost: 84, profit: 56, orders: 1, units: 2, visits: 80 });
+    expect(r.totals).toMatchObject({
+      revenue: 200,
+      fees: 28,
+      shipping: 20,
+      tax: 12,
+      productCost: 84,
+      profit: 56,
+      orders: 1,
+      units: 2,
+      visits: 80,
+    });
     expect(r.unansweredQuestions).toBe(1);
     expect(r.missingCosts).toBe(1); // MLBA2 sem custo
     expect(r.funnel.find((f) => f.itemId === "MLBA1")).toMatchObject({ orders: 1, visits: 80, unitCost: 40 });
@@ -187,7 +202,8 @@ describe.skipIf(!url)("banco de dados", () => {
             metrics: { impression_share: 40, lost_impression_share_by_budget: 25, lost_impression_share_by_ad_rank: 35 },
           });
         if (u.includes("/product_ads/campaigns")) {
-          if (u.includes("aggregation_type=DAILY")) return respond({ results: [{ campaign_id: 5, date: today, cost: 20, total_amount: 200 }] });
+          if (u.includes("aggregation_type=DAILY"))
+            return respond({ results: [{ campaign_id: 5, date: today, cost: 20, total_amount: 200 }] });
           return respond({
             results: [
               {
@@ -202,13 +218,25 @@ describe.skipIf(!url)("banco de dados", () => {
           });
         }
         if (u.includes("/product_ads/ads/search"))
-          return respond({ results: [{ item_id: "MLBA1", campaign_id: 5, metrics: { clicks: 40, prints: 4000, cost: 20, total_amount: 200, units_quantity: 2 } }] });
+          return respond({
+            results: [
+              { item_id: "MLBA1", campaign_id: 5, metrics: { clicks: 40, prints: 4000, cost: 20, total_amount: 200, units_quantity: 2 } },
+            ],
+          });
         if (u.includes("/product_ads/ad_groups/search")) return respond({ results: [{ id: 77, campaign_id: 5 }] });
         return respond({ message: "inesperado " + u }, 500);
       }),
     );
     try {
-      expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok", campaigns: 1, dailyRows: 1, items: 1, itemsSource: "ads", insights: 1, roasTargets: 1 });
+      expect(await adsSync.syncAds(accA)).toMatchObject({
+        status: "ok",
+        campaigns: 1,
+        dailyRows: 1,
+        items: 1,
+        itemsSource: "ads",
+        insights: 1,
+        roasTargets: 1,
+      });
       expect(await adsSync.syncAds(accA)).toMatchObject({ status: "ok" }); // rodar de novo não duplica
     } finally {
       vi.unstubAllGlobals();
@@ -253,8 +281,24 @@ describe.skipIf(!url)("banco de dados", () => {
     await adsData.setCampaignField(A, accA, 5, "status", "paused");
     expect(await adsData.ownCampaign(A, accA, 5)).toMatchObject({ budget: 45, status: "paused" });
 
-    await adsData.recordAdsChange(A, accA, { campaign_id: 5, campaign_name: "Fones", field: "budget", before_value: "30", after_value: "45", ok: true, error: null });
-    await adsData.recordAdsChange(B, accA, { campaign_id: 5, campaign_name: "Fones", field: "budget", before_value: "45", after_value: "1", ok: true, error: null });
+    await adsData.recordAdsChange(A, accA, {
+      campaign_id: 5,
+      campaign_name: "Fones",
+      field: "budget",
+      before_value: "30",
+      after_value: "45",
+      ok: true,
+      error: null,
+    });
+    await adsData.recordAdsChange(B, accA, {
+      campaign_id: 5,
+      campaign_name: "Fones",
+      field: "budget",
+      before_value: "45",
+      after_value: "1",
+      ok: true,
+      error: null,
+    });
     const h = await adsData.adsChanges(A, accA);
     expect(h.changes).toHaveLength(1);
     expect(h.changes[0]).toMatchObject({ field: "budget", before_value: "30", after_value: "45", ok: true });
@@ -262,7 +306,13 @@ describe.skipIf(!url)("banco de dados", () => {
     expect((await adsData.adsChanges(B, accA)).changes).toEqual([]);
 
     await adsData.insertCreatedCampaign(B, accA, { id: 99, name: "Invasora", strategy: "PROFITABILITY", budget: 10, roasTarget: 3 });
-    await adsData.insertCreatedCampaign(A, accA, { id: 98, name: "Seller Hub · Lançamentos", strategy: "VISIBILITY", budget: 10, roasTarget: 2.5 });
+    await adsData.insertCreatedCampaign(A, accA, {
+      id: 98,
+      name: "Seller Hub · Lançamentos",
+      strategy: "VISIBILITY",
+      budget: 10,
+      roasTarget: 2.5,
+    });
     const names = await adsData.campaignNames(A, accA);
     expect(names.has("Seller Hub · Lançamentos")).toBe(true);
     expect(names.has("Invasora")).toBe(false);
@@ -293,7 +343,12 @@ describe.skipIf(!url)("banco de dados", () => {
     }
     const h = await adsData.adsChanges(A, accA);
     const fromMl = h.changes.filter((c) => c.source === "mercado_ads").map((c) => [c.field, c.before_value, c.after_value]);
-    expect(fromMl).toEqual(expect.arrayContaining([["budget", "45", "30"], ["status", "paused", "active"]]));
+    expect(fromMl).toEqual(
+      expect.arrayContaining([
+        ["budget", "45", "30"],
+        ["status", "paused", "active"],
+      ]),
+    );
     expect(fromMl).toHaveLength(2);
     expect((await adsData.adsChanges(B, accA)).changes).toEqual([]);
   });
@@ -343,20 +398,28 @@ describe.skipIf(!url)("banco de dados", () => {
     } finally {
       vi.unstubAllGlobals();
     }
-    const [m] = await db.query<{ campaign_id: number; cost: number }>("select campaign_id, cost from ads_item_metrics where account_id = $1", [accA]);
+    const [m] = await db.query<{ campaign_id: number; cost: number }>(
+      "select campaign_id, cost from ads_item_metrics where account_id = $1",
+      [accA],
+    );
     expect(m).toEqual({ campaign_id: 5, cost: 5 });
     const [c] = await db.query<{ roas_target: number }>("select roas_target from ads_campaigns where account_id = $1 and id = 5", [accA]);
     expect(c.roas_target).toBe(4); // só veio ACOS alvo de 25%: ROAS 4x
   });
 
   it("marca erro da publicidade sem derrubar nada", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("forbidden", { status: 403 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("forbidden", { status: 403 })),
+    );
     try {
       expect(await adsSync.syncAds(accA)).toMatchObject({ status: "erro" });
     } finally {
       vi.unstubAllGlobals();
     }
-    const [row] = await db.query<{ ads_status: string; ads_error: string }>("select ads_status, ads_error from ml_accounts where id = $1", [accA]);
+    const [row] = await db.query<{ ads_status: string; ads_error: string }>("select ads_status, ads_error from ml_accounts where id = $1", [
+      accA,
+    ]);
     expect(row.ads_status).toBe("erro");
     expect(row.ads_error).toContain("403");
   });
@@ -376,10 +439,28 @@ describe.skipIf(!url)("banco de dados", () => {
         if (u.includes("/trends/MLB/MLB1051")) return respond([{ keyword: "fone bluetooth" }, { keyword: "fone sem fio" }]);
         if (u.includes("/highlights/MLB/category/MLB1051")) return respond({ content: [{ id: "MLBX1", position: 1, type: "ITEM" }] });
         if (u.includes("/items/MLBA1/price_to_win"))
-          return respond({ status: "competing", current_price: 100, price_to_win: 95, winner: { item_id: "MLBX1", price: 95 }, reason: [] });
+          return respond({
+            status: "competing",
+            current_price: 100,
+            price_to_win: 95,
+            winner: { item_id: "MLBX1", price: 95 },
+            reason: [],
+          });
         if (u.includes("/items?ids=")) {
           const ids = new URL(u).searchParams.get("ids")!.split(",");
-          return respond(ids.map((id) => ({ code: 200, body: { id, title: `Fone ${id} Bluetooth Sem Fio`, price: id === "MLBZ1" ? competitorPrice : 89.9, seller_id: 77, status: "active", shipping: { free_shipping: true } } })));
+          return respond(
+            ids.map((id) => ({
+              code: 200,
+              body: {
+                id,
+                title: `Fone ${id} Bluetooth Sem Fio`,
+                price: id === "MLBZ1" ? competitorPrice : 89.9,
+                seller_id: 77,
+                status: "active",
+                shipping: { free_shipping: true },
+              },
+            })),
+          );
         }
         return respond({ message: "inesperado " + u }, 500);
       }),
@@ -410,7 +491,10 @@ describe.skipIf(!url)("banco de dados", () => {
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
         const u = String(url);
-        if (u.includes("/items?ids=")) return new Response(JSON.stringify([{ code: 200, body: { id: "MLBZ1", title: "Fone Z", price: competitorPrice, status: "active" } }]));
+        if (u.includes("/items?ids="))
+          return new Response(
+            JSON.stringify([{ code: 200, body: { id: "MLBZ1", title: "Fone Z", price: competitorPrice, status: "active" } }]),
+          );
         if (u.includes("price_to_win")) return new Response(JSON.stringify({ status: "competing" }));
         return new Response("[]");
       }),
@@ -432,7 +516,8 @@ describe.skipIf(!url)("banco de dados", () => {
     const week = periods.lastCompleteWeek(new Date());
     const prev = periods.previousPeriod(week);
     const at = (day: string, hour = 15) => new Date(new Date(`${day}T00:00:00Z`).getTime() + hour * 3600_000).toISOString();
-    const mid = (p: { start: string }, plus: number) => new Date(new Date(`${p.start}T00:00:00Z`).getTime() + plus * 86400_000).toISOString().slice(0, 10);
+    const mid = (p: { start: string }, plus: number) =>
+      new Date(new Date(`${p.start}T00:00:00Z`).getTime() + plus * 86400_000).toISOString().slice(0, 10);
     const api = { shipmentCosts: vi.fn(async () => ({ senders: [{ user_id: 1, cost: 0 }] })) };
     const order = (id: number, date: string, item: string, qty: number, price: number) =>
       store.upsertOrder(api as never, accA, 1, {
@@ -467,7 +552,10 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(data.movers.up[0]).toMatchObject({ itemId: "MLBA1", revenue: 300, prevRevenue: 100 });
 
     // Gera e grava; a IA sem chave falha e o relatório sai mesmo assim
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 401 })),
+    );
     try {
       expect(await periodReport.ensureDueReports(accA, A, [week])).toHaveLength(1);
       expect(await periodReport.ensureDueReports(accA, A, [week])).toHaveLength(0); // já existe: não refaz
@@ -530,7 +618,10 @@ describe.skipIf(!url)("banco de dados", () => {
 
       // Falha fica registrada e o cron tenta de novo
       await db.query("update reports set whatsapp_sent_at = null where account_id = $1", [accA]);
-      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: 132001, message: "x" } }), { status: 404 })));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ error: { code: 132001, message: "x" } }), { status: 404 })),
+      );
       expect(await delivery.deliverPendingReports(accA, A)).toEqual({ failed: 1 });
       const failed = await reportsData.getReport(A, accA, kind, start);
       expect(failed?.whatsapp_sent_at).toBeNull();
@@ -588,7 +679,14 @@ describe.skipIf(!url)("banco de dados", () => {
   it("perguntas: pendentes, rascunho e resposta só do próprio vendedor", async () => {
     const at = new Date().toISOString();
     await store.upsertQuestion(accA, { id: 501, item_id: "MLBA1", text: "Funciona com Android?", status: "UNANSWERED", date_created: at });
-    await store.upsertQuestion(accA, { id: 502, item_id: "MLBA1", text: "Tem nota?", status: "ANSWERED", date_created: at, answer: { text: "Sim, enviamos nota fiscal." } });
+    await store.upsertQuestion(accA, {
+      id: 502,
+      item_id: "MLBA1",
+      text: "Tem nota?",
+      status: "ANSWERED",
+      date_created: at,
+      answer: { text: "Sim, enviamos nota fiscal." },
+    });
     const pending = await questionsData.pendingQuestions(A, accA);
     expect(pending.map((q) => q.id)).toContain(501);
     expect(pending.find((q) => q.id === 501)).toMatchObject({ title: "MLBA1", draft: null });
@@ -599,7 +697,11 @@ describe.skipIf(!url)("banco de dados", () => {
     expect(await questionsData.pastAnswers(accA, "MLBA1")).toContainEqual({ question: "Tem nota?", answer: "Sim, enviamos nota fiscal." });
 
     await questionsData.saveDraft(accA, 501, { answer: "Olá! Sim.", confidence: "alta", missing: [] });
-    expect((await questionsData.pendingQuestions(A, accA)).find((q) => q.id === 501)?.draft).toEqual({ answer: "Olá! Sim.", confidence: "alta", missing: [] });
+    expect((await questionsData.pendingQuestions(A, accA)).find((q) => q.id === 501)?.draft).toEqual({
+      answer: "Olá! Sim.",
+      confidence: "alta",
+      missing: [],
+    });
     await questionsData.markAnswered(accA, 501, "Olá! Sim, funciona.");
     expect((await questionsData.pendingQuestions(A, accA)).some((q) => q.id === 501)).toBe(false);
     expect((await questionsData.recentlyAnswered(A, accA))[0]).toMatchObject({ id: 501, answer: "Olá! Sim, funciona." });
@@ -611,8 +713,16 @@ describe.skipIf(!url)("banco de dados", () => {
 
   it("sincronização completa: reaproveita visitas recentes e registra o resumo", async () => {
     await tokens.saveTokens(accA, { access_token: "tok", refresh_token: "r", expires_in: 21600, user_id: 1 });
-    await db.query("update ml_accounts set orders_history_since = now() - interval '200 days', visits_synced_at = null where id = $1", [accA]);
-    await store.upsertQuestion(accA, { id: 777, item_id: "MLBA1", text: "x", status: "UNANSWERED", date_created: new Date().toISOString() });
+    await db.query("update ml_accounts set orders_history_since = now() - interval '200 days', visits_synced_at = null where id = $1", [
+      accA,
+    ]);
+    await store.upsertQuestion(accA, {
+      id: 777,
+      item_id: "MLBA1",
+      text: "x",
+      status: "UNANSWERED",
+      date_created: new Date().toISOString(),
+    });
     const visitCalls: string[] = [];
     const respond = (body: unknown) => new Response(JSON.stringify(body));
     vi.stubGlobal(
@@ -620,16 +730,30 @@ describe.skipIf(!url)("banco de dados", () => {
       vi.fn(async (url: string | URL | Request) => {
         const u = String(url);
         if (u.includes("/users/1/items/search")) return respond({ results: ["MLBA1", "MLBA2"], scroll_id: null });
-        if (u.match(/\/users\/1$/)) return respond({ id: 1, nickname: "loja_a", site_id: "MLB", seller_reputation: { level_id: "5_green" } });
+        if (u.match(/\/users\/1$/))
+          return respond({ id: 1, nickname: "loja_a", site_id: "MLB", seller_reputation: { level_id: "5_green" } });
         if (u.includes("/items?ids="))
-          return respond(["MLBA1", "MLBA2"].map((id) => ({ code: 200, body: { id, title: id, price: 100, available_quantity: 10, sold_quantity: 1, status: "active" } })));
+          return respond(
+            ["MLBA1", "MLBA2"].map((id) => ({
+              code: 200,
+              body: { id, title: id, price: 100, available_quantity: 10, sold_quantity: 1, status: "active" },
+            })),
+          );
         if (u.includes("/visits/time_window")) {
           visitCalls.push(u);
           return respond({ results: [{ date: new Date().toISOString(), total: 7 }] });
         }
         if (u.includes("/orders/search")) return respond({ results: [], paging: { total: 0 } });
         if (u.includes("/questions/search")) return respond({ questions: [] });
-        if (u.includes("/questions/777")) return respond({ id: 777, item_id: "MLBA1", text: "x", status: "ANSWERED", date_created: new Date().toISOString(), answer: { text: "respondida no app" } });
+        if (u.includes("/questions/777"))
+          return respond({
+            id: 777,
+            item_id: "MLBA1",
+            text: "x",
+            status: "ANSWERED",
+            date_created: new Date().toISOString(),
+            answer: { text: "respondida no app" },
+          });
         if (u.includes("/advertising/advertisers")) return respond({ advertisers: [] });
         return respond([]);
       }),
@@ -660,7 +784,10 @@ describe.skipIf(!url)("banco de dados", () => {
     const mine = await data.accountsOf(A);
     expect(mine.map((a) => a.marketplace).sort()).toEqual(["mercadolivre", "shopee"]);
     expect(mine.find((a) => a.marketplace === "shopee")?.connected).toBe(false);
-    await db.query("insert into shopee_tokens (account_id, access_token, refresh_token, expires_at, refresh_expires_at) values ($1, 'a', 'r', now(), now())", [shop.id]);
+    await db.query(
+      "insert into shopee_tokens (account_id, access_token, refresh_token, expires_at, refresh_expires_at) values ($1, 'a', 'r', now(), now())",
+      [shop.id],
+    );
     expect((await data.accountsOf(A)).find((a) => a.marketplace === "shopee")?.connected).toBe(true);
     expect(await data.accountsOf(B)).toHaveLength(1);
 
@@ -695,7 +822,13 @@ describe.skipIf(!url)("banco de dados", () => {
           case "/api/v2/product/get_item_base_info":
             return reply({
               item_list: [
-                { item_id: 1, item_name: "Caneca", item_status: "NORMAL", price_info: [{ current_price: 40 }], stock_info_v2: { summary_info: { total_available_stock: 5 } } },
+                {
+                  item_id: 1,
+                  item_name: "Caneca",
+                  item_status: "NORMAL",
+                  price_info: [{ current_price: 40 }],
+                  stock_info_v2: { summary_info: { total_available_stock: 5 } },
+                },
                 { item_id: 2, item_name: "Almofada", item_status: "NORMAL", has_model: true },
               ],
             });
@@ -711,12 +844,32 @@ describe.skipIf(!url)("banco de dados", () => {
           case "/api/v2/order/get_order_detail":
             return reply({
               order_list: [
-                { order_sn: "SN1", order_status: "COMPLETED", create_time: now - 3600, total_amount: 80, item_list: [{ item_id: 1, item_name: "Caneca", model_quantity_purchased: 2, model_discounted_price: 40 }] },
-                { order_sn: "SN2", order_status: "CANCELLED", create_time: now - 7200, total_amount: 30, item_list: [{ item_id: 2, item_name: "Almofada", model_quantity_purchased: 1, model_discounted_price: 30 }] },
+                {
+                  order_sn: "SN1",
+                  order_status: "COMPLETED",
+                  create_time: now - 3600,
+                  total_amount: 80,
+                  item_list: [{ item_id: 1, item_name: "Caneca", model_quantity_purchased: 2, model_discounted_price: 40 }],
+                },
+                {
+                  order_sn: "SN2",
+                  order_status: "CANCELLED",
+                  create_time: now - 7200,
+                  total_amount: 30,
+                  item_list: [{ item_id: 2, item_name: "Almofada", model_quantity_purchased: 1, model_discounted_price: 30 }],
+                },
               ],
             });
           case "/api/v2/payment/get_escrow_detail":
-            return reply({ order_income: { commission_fee: 12, service_fee: 4, seller_transaction_fee: 0, actual_shipping_fee: 10, shopee_shipping_rebate: 10 } });
+            return reply({
+              order_income: {
+                commission_fee: 12,
+                service_fee: 4,
+                seller_transaction_fee: 0,
+                actual_shipping_fee: 10,
+                shopee_shipping_rebate: 10,
+              },
+            });
           case "/api/v2/shop/get_shop_info":
             return reply({ shop_name: "Ateliê na Shopee" });
         }
@@ -767,17 +920,27 @@ describe.skipIf(!url)("banco de dados", () => {
     expect((await data.accountsOf(A)).find((a) => a.id === acc.id)?.connected).toBe(false);
     await amazonTokens.saveAmazonTokens(acc.id, { access_token: "tok", refresh_token: "ref", expires_in: 3600 });
     expect((await data.accountsOf(A)).find((a) => a.id === acc.id)?.connected).toBe(true);
-    const stored = await db.one<{ access_token: string; refresh_token: string }>("select access_token, refresh_token from amazon_tokens where account_id = $1", [acc.id]);
+    const stored = await db.one<{ access_token: string; refresh_token: string }>(
+      "select access_token, refresh_token from amazon_tokens where account_id = $1",
+      [acc.id],
+    );
     expect(stored?.refresh_token).not.toBe("ref"); // criptografado
 
     const created = new Date(Date.now() - 3600_000).toISOString();
     const paths: string[] = [];
-    const tsv = "item-name\tseller-sku\tprice\tquantity\tasin1\tfulfillment-channel\tstatus\nCaneca\tCAN-1\t49.90\t7\tB0A\tDEFAULT\tActive\n";
+    const tsv =
+      "item-name\tseller-sku\tprice\tquantity\tasin1\tfulfillment-channel\tstatus\nCaneca\tCAN-1\t49.90\t7\tB0A\tDEFAULT\tActive\n";
     const order = (orderId: string, status: string, sku: string, qty: number, amount: string) => ({
       orderId,
       createdTime: created,
       fulfillment: { fulfillmentStatus: status },
-      orderItems: [{ product: { asin: "B0A", sellerSku: sku }, quantityOrdered: qty, proceeds: { breakdowns: [{ type: "ITEM", subtotal: { amount, currencyCode: "BRL" } }] } }],
+      orderItems: [
+        {
+          product: { asin: "B0A", sellerSku: sku },
+          quantityOrdered: qty,
+          proceeds: { breakdowns: [{ type: "ITEM", subtotal: { amount, currencyCode: "BRL" } }] },
+        },
+      ],
     });
     vi.stubGlobal(
       "fetch",
@@ -796,10 +959,23 @@ describe.skipIf(!url)("banco de dados", () => {
             return json({ url: "https://docs.example/d1" });
           case "/orders/2026-01-01/orders":
             expect(u.searchParams.get("marketplaceIds")).toBe("A2Q3Y263D00KWC");
-            if (u.searchParams.get("lastUpdatedAfter")) return json({ orders: [order("701-1", "Shipped", "CAN-1", 2, "99.80"), order("701-2", "Canceled", "CAN-1", 1, "49.90")] });
+            if (u.searchParams.get("lastUpdatedAfter"))
+              return json({ orders: [order("701-1", "Shipped", "CAN-1", 2, "99.80"), order("701-2", "Canceled", "CAN-1", 1, "49.90")] });
             return json({ orders: [] });
           case "/finances/v0/orders/701-1/financialEvents":
-            return json({ payload: { FinancialEvents: { ShipmentEventList: [{ ShipmentItemList: [{ SellerSKU: "CAN-1", ItemFeeList: [{ FeeType: "Commission", FeeAmount: { CurrencyAmount: -15 } }] }] }] } } });
+            return json({
+              payload: {
+                FinancialEvents: {
+                  ShipmentEventList: [
+                    {
+                      ShipmentItemList: [
+                        { SellerSKU: "CAN-1", ItemFeeList: [{ FeeType: "Commission", FeeAmount: { CurrencyAmount: -15 } }] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            });
           case "/sellers/v1/marketplaceParticipations":
             return json({ payload: [{ marketplace: { id: "A2Q3Y263D00KWC" }, storeName: "Ateliê na Amazon" }] });
         }
@@ -823,7 +999,9 @@ describe.skipIf(!url)("banco de dados", () => {
       [acc.id],
     );
     expect(items).toEqual([{ id: "AMZCAN-1", price: 49.9, available_quantity: 7, status: "active" }]);
-    const [line] = await db.query<{ sale_fee: number; unit_price: number }>("select sale_fee, unit_price from order_items where order_id = '701-1'");
+    const [line] = await db.query<{ sale_fee: number; unit_price: number }>(
+      "select sale_fee, unit_price from order_items where order_id = '701-1'",
+    );
     expect(line).toEqual({ sale_fee: 7.5, unit_price: 49.9 });
     expect((await db.query("select 1 from orders where id = '701-2' and status = 'cancelled'")).length).toBe(1);
     const events = (await data.recentEvents(acc.id)).map((e) => e.title);
@@ -835,6 +1013,33 @@ describe.skipIf(!url)("banco de dados", () => {
     const r = await report.buildReport(acc.id, A, 7);
     expect(r.totals).toMatchObject({ revenue: 99.8, orders: 1, fees: 15 });
     await db.query("delete from ml_accounts where id = $1", [acc.id]);
+  });
+
+  it("cadastro de produtos: cada vendedor só vê e altera o próprio, com um anúncio por loja", async () => {
+    const id = await catalog.createProduct(A, { sku: "CAN-1", name: "Caneca", description: "Cerâmica 300 ml", price: 49.9, cost: 20 });
+    expect((await catalog.productsOf(A)).map((p) => p.id)).toContain(id);
+    expect(await catalog.productOf(B, id)).toBeNull(); // outro vendedor não enxerga
+    expect(await catalog.productsOf(B)).toEqual([]);
+
+    const listing = {
+      platform: "shopee" as const,
+      title: "Caneca",
+      description: "Texto",
+      keywords: ["caneca"],
+      to_confirm: [],
+      research: null,
+    };
+    await expect(catalog.saveListings(B, id, [listing])).rejects.toThrow(/não encontrado/); // não grava no produto de outro
+    await catalog.saveListings(A, id, [listing, { ...listing, platform: "amazon" as const, title: "Caneca Amazon" }]);
+    await catalog.saveListings(A, id, [{ ...listing, title: "Caneca nova" }]); // atualiza, não duplica
+    const rows = await catalog.listingsOf(A, id);
+    expect(rows.map((l) => [l.platform, l.title])).toEqual([
+      ["amazon", "Caneca Amazon"],
+      ["shopee", "Caneca nova"],
+    ]);
+    expect(await catalog.listingsOf(B, id)).toEqual([]);
+    expect(await catalog.mlCategoriesOf(A)).toEqual([]);
+    await db.query("delete from catalog_products where id = $1", [id]);
   });
 
   it("equipe: convite só para o e-mail convidado, uma vez, e acesso só às lojas de quem convidou", async () => {
@@ -942,6 +1147,8 @@ describe.skipIf(!url)("banco de dados", () => {
     const again = cookieOf((await api.signInEmail({ body: { email, password }, returnHeaders: true })).headers);
     await api.verifyBackupCode({ body: { code: enabled.backupCodes[0] }, headers: new Headers({ cookie: again }) });
     const third = cookieOf((await api.signInEmail({ body: { email, password }, returnHeaders: true })).headers);
-    await expect(api.verifyBackupCode({ body: { code: enabled.backupCodes[0] }, headers: new Headers({ cookie: third }) })).rejects.toThrow();
+    await expect(
+      api.verifyBackupCode({ body: { code: enabled.backupCodes[0] }, headers: new Headers({ cookie: third }) }),
+    ).rejects.toThrow();
   });
 });
