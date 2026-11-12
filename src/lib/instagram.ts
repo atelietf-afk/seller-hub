@@ -35,3 +35,14 @@ export async function publishPhoto(imageUrl: string, caption: string): Promise<s
   const creationId = await graph(`${igUser}/media`, { image_url: imageUrl, caption });
   return graph(`${igUser}/media_publish`, { creation_id: creationId });
 }
+
+/** Carrossel: cria um contêiner para cada foto, depois o contêiner do carrossel, e publica. */
+export async function publishCarousel(imageUrls: string[], caption: string): Promise<string> {
+  const igUser = process.env.IG_USER_ID ?? "";
+  const children: string[] = [];
+  for (const url of imageUrls) {
+    children.push(await graph(`${igUser}/media`, { image_url: url, is_carousel_item: "true" }));
+  }
+  const carouselId = await graph(`${igUser}/media`, { media_type: "CAROUSEL", children: children.join(","), caption });
+  return graph(`${igUser}/media_publish`, { creation_id: carouselId });
+}

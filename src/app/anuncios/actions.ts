@@ -6,8 +6,8 @@ import { generateListings } from "@/lib/ai/listings";
 import * as catalog from "@/lib/data/catalog";
 import { trendsFor } from "@/lib/data/spy";
 import { imagesOf } from "@/lib/data/images";
-import { captionProblem } from "@/lib/analytics/images";
-import { instagramConfigured, publicImageUrl, publishPhoto } from "@/lib/instagram";
+import { captionProblem, carouselProblem } from "@/lib/analytics/images";
+import { instagramConfigured, publicImageUrl, publishCarousel, publishPhoto } from "@/lib/instagram";
 import { publishProduct, resendMissingPhotos } from "@/lib/lojaintegrada/publish";
 import { parseMoney } from "@/lib/format";
 import { requirePermission } from "@/lib/session";
@@ -106,4 +106,31 @@ export async function resendPhotosAction(formData: FormData) {
   }
   revalidatePath(`/anuncios/${productId}`);
   redirect(`/anuncios/${productId}?li=${encodeURIComponent(msg)}#loja-integrada`);
+}
+
+/** Publica um carrossel com as fotos escolhidas (na ordem da galeria), só com a confirmação marcada. */
+export async function publishInstagramCarouselAction(formData: FormData) {
+  const { ownerId } = await requirePermission("operar");
+  const productId = String(formData.get("productId") ?? "");
+  const caption = String(formData.get("caption") ?? "");
+  const back = (msg: string) => redirect(`/anuncios/${productId}?ig=${encodeURIComponent(msg)}#instagram`);
+
+  if (formData.get("confirmo") !== "on") back("confirme");
+  const chosen = new Set(formData.getAll("fotos").map(String));
+  const photos = (await imagesOf(ownerId, productId)).filter((i) => chosen.has(i.id));
+  const problem = carouselProblem(photos.length) ?? captionProblem(caption);
+  if (problem) back(problem);
+  if (!instagramConfigured()) back("Instagram ainda não configurado no servidor.");
+
+  try {
+    await publishCarousel(
+      photos.map((p) => publicImageUrl(p.id, p.content_type)),
+      caption,
+    );
+  } catch (err) {
+    console.error("Carrossel no Instagram falhou", err);
+    back(`A Meta recusou: ${(err as Error).message}`);
+  }
+  revalidatePath(`/anuncios/${productId}`);
+  back("publicado");
 }

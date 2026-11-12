@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captionProblem, imageProblem, IMAGE_MAX_BYTES } from "@/lib/analytics/images";
+import { captionProblem, carouselProblem, imageProblem, IMAGE_MAX_BYTES } from "@/lib/analytics/images";
 
 describe("fotos e legendas", () => {
   it("aceita só JPG, PNG e WEBP até 8 MB", () => {
@@ -15,5 +15,12 @@ describe("fotos e legendas", () => {
     expect(captionProblem("Caneca #a #b")).toBeNull();
     const muitas = Array.from({ length: 31 }, (_, i) => `#t${i}`).join(" ");
     expect(captionProblem(muitas)).toMatch(/30 hashtags/);
+  });
+
+  it("carrossel: de 2 a 10 fotos", () => {
+    expect(carouselProblem(1)).toMatch(/pelo menos 2/);
+    expect(carouselProblem(2)).toBeNull();
+    expect(carouselProblem(10)).toBeNull();
+    expect(carouselProblem(11)).toMatch(/10 fotos/);
   });
 });

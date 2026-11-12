@@ -17,3 +17,10 @@ export function captionProblem(caption: string): string | null {
   if ((caption.match(/#\S+/g) ?? []).length > 30) return "O Instagram aceita no máximo 30 hashtags.";
   return null;
 }
+
+/** Carrossel do Instagram: de 2 a 10 fotos. */
+export function carouselProblem(count: number): string | null {
+  if (count < 2) return "O carrossel precisa de pelo menos 2 fotos.";
+  if (count > 10) return "O Instagram aceita no máximo 10 fotos no carrossel.";
+  return null;
+}

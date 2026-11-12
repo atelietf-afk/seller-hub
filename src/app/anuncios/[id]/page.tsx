@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { publishInstagramAction, publishLojaIntegradaAction, resendPhotosAction } from "../actions";
+import { publishInstagramAction, publishInstagramCarouselAction, publishLojaIntegradaAction, resendPhotosAction } from "../actions";
 import { lojaIntegradaConfigured } from "@/lib/lojaintegrada/client";
 import { priceBody, productBody, sendProblems, stockBody } from "@/lib/lojaintegrada/payload";
 import { ImageUpload } from "../ImageUpload";
@@ -117,6 +117,32 @@ export default async function ProductPage({
               </li>
             ))}
           </ul>
+        )}
+        {instagramConfigured() && images.length >= 2 && (
+          <form action={publishInstagramCarouselAction} className="space-y-3 rounded-md border border-line p-4">
+            <input type="hidden" name="productId" value={product.id} />
+            <p className="text-sm font-medium">Carrossel (de 2 a 10 fotos)</p>
+            <p className="text-xs text-muted">Marque as fotos, na ordem em que aparecem aqui.</p>
+            <ul className="grid gap-2 sm:grid-cols-4">
+              {images.map((img) => (
+                <li key={img.id}>
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" name="fotos" value={img.id} /> Usar esta
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <textarea
+              name="caption"
+              rows={3}
+              defaultValue={`${product.name}\n\n#artesanal #ateliê #presente`}
+              className="w-full rounded-md border border-line bg-bg px-3 py-2 text-sm"
+            />
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" name="confirmo" /> Confirmo a publicação do carrossel no Instagram
+            </label>
+            <button className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white">Publicar carrossel</button>
+          </form>
         )}
         {ig && (
           <p className={`rounded-md p-3 text-sm ${ig === "publicado" ? "bg-good/10" : "bg-critical/10 text-critical"}`}>
