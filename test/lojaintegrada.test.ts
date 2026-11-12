@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { publicImageUrl } from "@/lib/instagram";
 import { imagePayload, priceBody, productBody, sameCategory, sendProblems, slugOf, stockBody } from "@/lib/lojaintegrada/payload";
 
 describe("envio à Loja Integrada", () => {
@@ -49,5 +50,13 @@ describe("envio à Loja Integrada", () => {
       produto: "/api/v1/produto/55",
     });
     expect(imagePayload(55, "https://seller/api/imagens/def", 2, "image/jpeg")).toMatchObject({ principal: false, posicao: 2 });
+  });
+
+  it("o endereço da foto termina com a extensão do formato", () => {
+    process.env.BETTER_AUTH_URL = "https://seller.example";
+    expect(publicImageUrl("9f3c1a2e-0000-4000-8000-000000000000", "image/png")).toMatch(
+      /\/api\/imagens\/9f3c1a2e-0000-4000-8000-000000000000\.png$/,
+    );
+    expect(publicImageUrl("9f3c1a2e-0000-4000-8000-000000000000", "image/jpeg")).toMatch(/\.jpg$/);
   });
 });

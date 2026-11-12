@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { publishInstagramAction, publishLojaIntegradaAction } from "../actions";
+import { publishInstagramAction, publishLojaIntegradaAction, resendPhotosAction } from "../actions";
 import { lojaIntegradaConfigured } from "@/lib/lojaintegrada/client";
 import { priceBody, productBody, sendProblems, stockBody } from "@/lib/lojaintegrada/payload";
 import { ImageUpload } from "../ImageUpload";
@@ -20,6 +20,10 @@ const IG_MESSAGES: Record<string, string> = {
 
 const LI_MESSAGES: Record<string, string> = {
   enviado: "Produto enviado à Loja Integrada, inativo e sem estoque. Revise no painel antes de ativar.",
+  "fotos-reenviadas": "Fotos que faltavam foram enviadas à Loja Integrada.",
+  "nenhuma-foto-faltando": "A Loja Integrada já tem todas as fotos deste produto.",
+  "fotos-reenviadas": "Fotos que faltavam foram enviadas à Loja Integrada.",
+  "nenhuma-foto-faltando": "A Loja Integrada já tem todas as fotos deste produto.",
   confirme: "Marque a caixa para confirmar o envio.",
 };
 
@@ -91,8 +95,8 @@ export default async function ProductPage({
                 {/* eslint-disable-next-line @next/next/no-img-element -- foto do próprio produto, servida pela rota pública */}
                 <img src={`/api/imagens/${img.id}`} alt={product.name} className="h-40 w-full rounded object-cover" />
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs text-muted">{publicImageUrl(img.id)}</span>
-                  <CopyButton text={publicImageUrl(img.id)} label="Copiar link" />
+                  <span className="truncate text-xs text-muted">{publicImageUrl(img.id, img.content_type)}</span>
+                  <CopyButton text={publicImageUrl(img.id, img.content_type)} label="Copiar link" />
                 </div>
                 {instagramConfigured() ? (
                   <form action={publishInstagramAction} className="space-y-2">
@@ -126,7 +130,16 @@ export default async function ProductPage({
       <section id="loja-integrada" className="space-y-4 rounded-xl border border-line bg-surface p-5">
         <h2 className="font-semibold">Enviar à Loja Integrada</h2>
         {product.loja_integrada_id ? (
-          <p className="text-sm text-ink-2">Já enviado (id {product.loja_integrada_id}). Para alterar, faça no painel da Loja Integrada.</p>
+          <div className="space-y-2">
+            <p className="text-sm text-ink-2">
+              Já enviado (id {product.loja_integrada_id}). Para alterar, faça no painel da Loja Integrada.
+            </p>
+            <form action={resendPhotosAction}>
+              <input type="hidden" name="productId" value={product.id} />
+              <button className="rounded-md border border-line px-3 py-1.5 text-sm font-medium">Reenviar fotos que faltaram</button>
+              <p className="mt-1 text-xs text-muted">Envia só as fotos que a Loja Integrada ainda não tem.</p>
+            </form>
+          </div>
         ) : (
           <>
             <p className="text-sm text-ink-2">

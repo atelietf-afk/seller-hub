@@ -10,9 +10,12 @@ export function instagramConfigured() {
   return !!(process.env.IG_USER_ID && process.env.META_ACCESS_TOKEN);
 }
 
-/** Endereço público da foto, como a Meta precisa para baixá-la. */
-export function publicImageUrl(imageId: string) {
-  return `${env("BETTER_AUTH_URL").replace(/\/$/, "")}/api/imagens/${imageId}`;
+const EXTENSION: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+
+/** Endereço público da foto. Termina com a extensão do formato, que alguns serviços exigem. */
+export function publicImageUrl(imageId: string, contentType: string) {
+  const ext = EXTENSION[contentType] ?? "jpg";
+  return `${env("BETTER_AUTH_URL").replace(/\/$/, "")}/api/imagens/${imageId}.${ext}`;
 }
 
 async function graph(path: string, body: Record<string, string>) {

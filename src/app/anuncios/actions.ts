@@ -8,7 +8,7 @@ import { trendsFor } from "@/lib/data/spy";
 import { imagesOf } from "@/lib/data/images";
 import { captionProblem } from "@/lib/analytics/images";
 import { instagramConfigured, publicImageUrl, publishPhoto } from "@/lib/instagram";
-import { publishProduct } from "@/lib/lojaintegrada/publish";
+import { publishProduct, resendMissingPhotos } from "@/lib/lojaintegrada/publish";
 import { parseMoney } from "@/lib/format";
 import { requirePermission } from "@/lib/session";
 
@@ -62,7 +62,8 @@ export async function publishInstagramAction(formData: FormData) {
   if (!owned) back("Foto não encontrada.");
 
   try {
-    const mediaId = await publishPhoto(publicImageUrl(imageId), caption);
+    const photo = (await imagesOf(ownerId, productId)).find((i) => i.id === imageId);
+    const mediaId = await publishPhoto(publicImageUrl(imageId, photo?.content_type ?? "image/jpeg"), caption);
     console.info("Post publicado no Instagram", productId, mediaId);
   } catch (err) {
     console.error("Publicação no Instagram falhou", err);
@@ -89,4 +90,20 @@ export async function publishLojaIntegradaAction(formData: FormData) {
   }
   revalidatePath(`/anuncios/${productId}`);
   back("enviado");
+}
+
+/** Reenvia as fotos que não chegaram à Loja Integrada, sem repetir as que já estão lá. */
+export async function resendPhotosAction(formData: FormData) {
+  const { ownerId } = await requirePermission("operar");
+  const productId = String(formData.get("productId") ?? "");
+  let msg = "fotos-reenviadas";
+  try {
+    const sent = await resendMissingPhotos(ownerId, productId);
+    if (sent === 0) msg = "nenhuma-foto-faltando";
+  } catch (err) {
+    console.error("Reenvio de fotos falhou", err);
+    msg = (err as Error).message;
+  }
+  revalidatePath(`/anuncios/${productId}`);
+  redirect(`/anuncios/${productId}?li=${encodeURIComponent(msg)}#loja-integrada`);
 }

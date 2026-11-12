@@ -46,3 +46,9 @@ export const createCategory = (nome: string) =>
   call<{ id: number }>("POST", "/categoria", { id_externo: null, nome, descricao: null, categoria_pai: null });
 
 export const createProductImage = (body: unknown) => call<{ id: number }>("POST", "/produto_imagem", body);
+
+/** Quantas fotos o produto já tem na Loja Integrada. */
+export async function countProductImages(remoteProductId: number): Promise<number> {
+  const page = await call<{ meta: { total_count: number } }>("GET", `/produto_imagem?produto=${remoteProductId}`, undefined);
+  return page.meta.total_count;
+}

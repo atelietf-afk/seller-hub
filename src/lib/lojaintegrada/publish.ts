@@ -2,7 +2,7 @@ import "server-only";
 import * as catalog from "@/lib/data/catalog";
 import { publicImageUrl } from "@/lib/instagram";
 import { imagesOf } from "@/lib/data/images";
-import { createCategory, createProduct, createProductImage, listCategories, setPrice, setStock } from "./client";
+import { countProductImages, createCategory, createProduct, createProductImage, listCategories, setPrice, setStock } from "./client";
 import { imagePayload, priceBody, productBody, sameCategory, sendProblems, stockBody } from "./payload";
 
 /**
@@ -33,11 +33,28 @@ export async function publishProduct(ownerId: string, productId: string, categor
   const photos = await imagesOf(ownerId, productId);
   for (const [index, photo] of photos.entries()) {
     try {
-      await createProductImage(imagePayload(created.id, publicImageUrl(photo.id), index, photo.content_type));
+      await createProductImage(imagePayload(created.id, publicImageUrl(photo.id, photo.content_type), index, photo.content_type));
     } catch (err) {
       failures.push((err as Error).message);
     }
   }
   if (failures.length) throw new Error(`Produto enviado, mas ${failures.length} foto(s) falharam: ${failures[0]}`);
   return created.id;
+}
+
+/**
+ * Envia as fotos que faltaram num produto já enviado. Consulta quantas fotos a loja já tem
+ * e manda só o restante, na ordem, para não duplicar.
+ */
+export async function resendMissingPhotos(ownerId: string, productId: string): Promise<number> {
+  const product = await catalog.productOf(ownerId, productId);
+  if (!product?.loja_integrada_id) throw new Error("Envie o produto antes de reenviar as fotos.");
+  const remoteId = product.loja_integrada_id;
+  const onStore = await countProductImages(remoteId);
+  const photos = await imagesOf(ownerId, productId);
+  const missing = photos.slice(onStore);
+  for (const [offset, photo] of missing.entries()) {
+    await createProductImage(imagePayload(remoteId, publicImageUrl(photo.id, photo.content_type), onStore + offset, photo.content_type));
+  }
+  return missing.length;
 }
