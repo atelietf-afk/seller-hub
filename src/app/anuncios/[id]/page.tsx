@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { publishInstagramAction } from "../actions";
+import { publishInstagramAction, publishLojaIntegradaAction } from "../actions";
+import { lojaIntegradaConfigured } from "@/lib/lojaintegrada/client";
+import { priceBody, productBody, sendProblems, stockBody } from "@/lib/lojaintegrada/payload";
 import { ImageUpload } from "../ImageUpload";
 import { CopyButton } from "@/components/CopyButton";
 import { instagramConfigured, publicImageUrl } from "@/lib/instagram";
@@ -16,14 +18,19 @@ const IG_MESSAGES: Record<string, string> = {
   confirme: "Marque a caixa para confirmar a publicação.",
 };
 
+const LI_MESSAGES: Record<string, string> = {
+  enviado: "Produto enviado à Loja Integrada, inativo e sem estoque. Revise no painel antes de ativar.",
+  confirme: "Marque a caixa para confirmar o envio.",
+};
+
 export default async function ProductPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ig?: string }>;
+  searchParams: Promise<{ ig?: string; li?: string }>;
 }) {
-  const { ig } = await searchParams;
+  const { ig, li } = await searchParams;
   const { ownerId } = await currentAccount();
   const { id } = await params;
   const images = await imagesOf(ownerId, id);
@@ -112,6 +119,73 @@ export default async function ProductPage({
         {ig && (
           <p className={`rounded-md p-3 text-sm ${ig === "publicado" ? "bg-good/10" : "bg-critical/10 text-critical"}`}>
             {IG_MESSAGES[ig] ?? ig}
+          </p>
+        )}
+      </section>
+
+      <section id="loja-integrada" className="space-y-4 rounded-xl border border-line bg-surface p-5">
+        <h2 className="font-semibold">Enviar à Loja Integrada</h2>
+        {product.loja_integrada_id ? (
+          <p className="text-sm text-ink-2">Já enviado (id {product.loja_integrada_id}). Para alterar, faça no painel da Loja Integrada.</p>
+        ) : (
+          <>
+            <p className="text-sm text-ink-2">
+              O produto entra <strong>inativo</strong> e com estoque zerado. Você revisa e ativa no painel. Sem categoria, sem medidas e sem
+              peso: esses dados você completa lá.
+            </p>
+            <details className="rounded-md border border-line p-3 text-xs">
+              <summary className="cursor-pointer font-medium">Ver o que será enviado</summary>
+              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap">
+                {JSON.stringify(
+                  {
+                    produto: productBody({
+                      name: product.name,
+                      description: product.description,
+                      sku: product.sku,
+                      price: product.price,
+                      cost: product.cost,
+                    }),
+                    preco: priceBody({
+                      name: product.name,
+                      description: product.description,
+                      sku: product.sku,
+                      price: product.price,
+                      cost: product.cost,
+                    }),
+                    estoque: stockBody(0),
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </details>
+            {sendProblems({
+              name: product.name,
+              description: product.description,
+              sku: product.sku,
+              price: product.price,
+              cost: product.cost,
+            }).map((m) => (
+              <p key={m} className="rounded-md bg-critical/10 p-2 text-xs text-critical">
+                {m}
+              </p>
+            ))}
+            {lojaIntegradaConfigured() ? (
+              <form action={publishLojaIntegradaAction} className="space-y-2">
+                <input type="hidden" name="productId" value={product.id} />
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" name="confirmo" /> Confirmo o envio deste produto à Loja Integrada
+                </label>
+                <button className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white">Enviar à Loja Integrada</button>
+              </form>
+            ) : (
+              <p className="text-xs text-muted">Loja Integrada ainda não configurada no servidor.</p>
+            )}
+          </>
+        )}
+        {li && (
+          <p className={`rounded-md p-3 text-sm ${li === "enviado" ? "bg-good/10" : "bg-critical/10 text-critical"}`}>
+            {LI_MESSAGES[li] ?? li}
           </p>
         )}
       </section>

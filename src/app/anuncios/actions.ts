@@ -8,6 +8,7 @@ import { trendsFor } from "@/lib/data/spy";
 import { imagesOf } from "@/lib/data/images";
 import { captionProblem } from "@/lib/analytics/images";
 import { instagramConfigured, publicImageUrl, publishPhoto } from "@/lib/instagram";
+import { publishProduct } from "@/lib/lojaintegrada/publish";
 import { parseMoney } from "@/lib/format";
 import { requirePermission } from "@/lib/session";
 
@@ -69,4 +70,20 @@ export async function publishInstagramAction(formData: FormData) {
   }
   revalidatePath(`/anuncios/${productId}`);
   back("publicado");
+}
+
+/** Envia o produto à Loja Integrada (inativo) só com a confirmação marcada na tela. */
+export async function publishLojaIntegradaAction(formData: FormData) {
+  const { ownerId } = await requirePermission("operar");
+  const productId = String(formData.get("productId") ?? "");
+  const back = (msg: string) => redirect(`/anuncios/${productId}?li=${encodeURIComponent(msg)}#loja-integrada`);
+  if (formData.get("confirmo") !== "on") back("confirme");
+  try {
+    await publishProduct(ownerId, productId);
+  } catch (err) {
+    console.error("Envio à Loja Integrada falhou", err);
+    back((err as Error).message);
+  }
+  revalidatePath(`/anuncios/${productId}`);
+  back("enviado");
 }

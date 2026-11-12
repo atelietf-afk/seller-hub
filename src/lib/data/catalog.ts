@@ -12,6 +12,7 @@ export interface CatalogProduct {
   description: string;
   price: number | null;
   cost: number | null;
+  loja_integrada_id: number | null;
   created_at: string;
 }
 
@@ -80,4 +81,9 @@ export async function saveListings(
       [productId, l.platform, l.title, l.description, JSON.stringify(l.keywords), JSON.stringify(l.to_confirm), JSON.stringify(l.research)],
     );
   }
+}
+
+/** Grava o id do produto na Loja Integrada, só para produto do próprio dono. */
+export async function setLojaIntegradaId(ownerId: string, productId: string, remoteId: number) {
+  await query("update catalog_products set loja_integrada_id = $3 where owner_id = $1 and id = $2", [ownerId, productId, remoteId]);
 }
