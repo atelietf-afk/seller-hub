@@ -76,10 +76,11 @@ export async function publishInstagramAction(formData: FormData) {
 export async function publishLojaIntegradaAction(formData: FormData) {
   const { ownerId } = await requirePermission("operar");
   const productId = String(formData.get("productId") ?? "");
+  const category = String(formData.get("categoria") ?? "");
   const back = (msg: string) => redirect(`/anuncios/${productId}?li=${encodeURIComponent(msg)}#loja-integrada`);
   if (formData.get("confirmo") !== "on") back("confirme");
   try {
-    await publishProduct(ownerId, productId);
+    await publishProduct(ownerId, productId, category);
   } catch (err) {
     console.error("Envio à Loja Integrada falhou", err);
     back((err as Error).message);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { priceBody, productBody, sendProblems, slugOf, stockBody } from "@/lib/lojaintegrada/payload";
+import { priceBody, productBody, sameCategory, sendProblems, slugOf, stockBody } from "@/lib/lojaintegrada/payload";
 
 describe("envio à Loja Integrada", () => {
   const p = { name: "Caneca Personalizada & Nome", description: "Cerâmica 300 ml\n\nFeita à mão <3", sku: "CAN-1", price: 49.9, cost: 20 };
@@ -25,6 +25,13 @@ describe("envio à Loja Integrada", () => {
   it("preço e estoque seguem o formato da API", () => {
     expect(priceBody(p)).toEqual({ cheio: 49.9, custo: 20, promocional: null, sob_consulta: false });
     expect(stockBody(3)).toEqual({ gerenciado: true, quantidade: 3, situacao_em_estoque: 0, situacao_sem_estoque: -1 });
+  });
+
+  it("liga o produto à categoria pelo endereço da API e confere o nome sem acento", () => {
+    expect(productBody(p, 123).categorias).toEqual(["/api/v1/categoria/123"]);
+    expect(sameCategory("Camisetas", " camisetas ")).toBe(true);
+    expect(sameCategory("Acessórios", "Acessorios")).toBe(true);
+    expect(sameCategory("Camisetas", "Canecas")).toBe(false);
   });
 
   it("recusa o envio sem SKU ou sem preço", () => {

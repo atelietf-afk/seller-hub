@@ -22,12 +22,12 @@ export function slugOf(text: string): string {
 const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Produto simples. Entra inativo: você revisa no painel antes de ativar. */
-export function productBody(p: ProductInput) {
+export function productBody(p: ProductInput, categoryId?: number) {
   return {
     altura: null,
     apelido: slugOf(p.name),
     ativo: false,
-    categorias: [] as string[],
+    categorias: categoryId ? [`/api/v1/categoria/${categoryId}`] : ([] as string[]),
     descricao_completa: p.description
       .split(/\n+/)
       .filter((l) => l.trim())
@@ -47,6 +47,12 @@ export function productBody(p: ProductInput) {
     tipo: "normal",
     usado: false,
   };
+}
+
+/** Acha a categoria pelo nome (sem diferenciar maiúsculas e acento); se não existir, cria. */
+export function sameCategory(a: string, b: string) {
+  const n = (t: string) => t.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return n(a) === n(b);
 }
 
 /** Preço de venda e de custo. Sem preço de venda, o envio é recusado antes de sair. */

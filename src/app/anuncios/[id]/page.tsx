@@ -173,6 +173,17 @@ export default async function ProductPage({
             {lojaIntegradaConfigured() ? (
               <form action={publishLojaIntegradaAction} className="space-y-2">
                 <input type="hidden" name="productId" value={product.id} />
+                <label className="block text-sm">
+                  Categoria na loja (opcional)
+                  <input
+                    name="categoria"
+                    placeholder="Ex.: Camisetas"
+                    className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
+                  />
+                  <span className="mt-1 block text-xs text-muted">
+                    Se a categoria não existir, ela é criada. Sem categoria, o produto fica sem categoria até você escolher no painel.
+                  </span>
+                </label>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" name="confirmo" /> Confirmo o envio deste produto à Loja Integrada
                 </label>
