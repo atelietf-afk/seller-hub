@@ -27,6 +27,10 @@ export default async function AnunciosPage({ searchParams }: { searchParams: Pro
         </p>
       </div>
 
+      <Link href="/anuncios/video" className="inline-block rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium">
+        Editor de vídeo para as lojas →
+      </Link>
+
       {erro && <p className="rounded-md bg-critical/10 p-3 text-sm text-critical">{ERRORS[erro] ?? erro}</p>}
 
       <form action={createProductAction} className="space-y-4 rounded-xl border border-line bg-surface p-5">
