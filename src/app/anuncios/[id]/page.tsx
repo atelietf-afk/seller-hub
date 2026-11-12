@@ -165,14 +165,28 @@ export default async function ProductPage({
               sku: product.sku,
               price: product.price,
               cost: product.cost,
-            }).map((m) => (
-              <p key={m} className="rounded-md bg-critical/10 p-2 text-xs text-critical">
-                {m}
-              </p>
-            ))}
+            })
+              // o SKU é preenchido no próprio formulário de envio, então a mensagem só aparece sem o campo
+              .filter((m) => product.sku || !m.includes("SKU"))
+              .map((m) => (
+                <p key={m} className="rounded-md bg-critical/10 p-2 text-xs text-critical">
+                  {m}
+                </p>
+              ))}
             {lojaIntegradaConfigured() ? (
               <form action={publishLojaIntegradaAction} className="space-y-2">
                 <input type="hidden" name="productId" value={product.id} />
+                {!product.sku && (
+                  <label className="block text-sm">
+                    SKU (código do produto, obrigatório)
+                    <input
+                      name="sku"
+                      required
+                      placeholder="Ex.: CAN-001"
+                      className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
+                    />
+                  </label>
+                )}
                 <label className="block text-sm">
                   Categoria na loja (opcional)
                   <input

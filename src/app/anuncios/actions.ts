@@ -77,9 +77,11 @@ export async function publishLojaIntegradaAction(formData: FormData) {
   const { ownerId } = await requirePermission("operar");
   const productId = String(formData.get("productId") ?? "");
   const category = String(formData.get("categoria") ?? "");
+  const sku = String(formData.get("sku") ?? "").trim();
   const back = (msg: string) => redirect(`/anuncios/${productId}?li=${encodeURIComponent(msg)}#loja-integrada`);
   if (formData.get("confirmo") !== "on") back("confirme");
   try {
+    if (sku) await catalog.setProductSku(ownerId, productId, sku);
     await publishProduct(ownerId, productId, category);
   } catch (err) {
     console.error("Envio à Loja Integrada falhou", err);
