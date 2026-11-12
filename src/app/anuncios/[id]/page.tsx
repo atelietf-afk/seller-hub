@@ -22,8 +22,6 @@ const LI_MESSAGES: Record<string, string> = {
   enviado: "Produto enviado à Loja Integrada, inativo e sem estoque. Revise no painel antes de ativar.",
   "fotos-reenviadas": "Fotos que faltavam foram enviadas à Loja Integrada.",
   "nenhuma-foto-faltando": "A Loja Integrada já tem todas as fotos deste produto.",
-  "fotos-reenviadas": "Fotos que faltavam foram enviadas à Loja Integrada.",
-  "nenhuma-foto-faltando": "A Loja Integrada já tem todas as fotos deste produto.",
   confirme: "Marque a caixa para confirmar o envio.",
 };
 
