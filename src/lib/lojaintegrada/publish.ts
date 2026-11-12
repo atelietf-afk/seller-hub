@@ -1,7 +1,9 @@
 import "server-only";
 import * as catalog from "@/lib/data/catalog";
-import { createCategory, createProduct, listCategories, setPrice, setStock } from "./client";
-import { priceBody, productBody, sameCategory, sendProblems, stockBody } from "./payload";
+import { publicImageUrl } from "@/lib/instagram";
+import { imagesOf } from "@/lib/data/images";
+import { createCategory, createProduct, createProductImage, listCategories, setPrice, setStock } from "./client";
+import { imagePayload, priceBody, productBody, sameCategory, sendProblems, stockBody } from "./payload";
 
 /**
  * Envia um produto do cadastro à Loja Integrada: produto (inativo), preço e estoque zerado.
@@ -25,5 +27,17 @@ export async function publishProduct(ownerId: string, productId: string, categor
   await catalog.setLojaIntegradaId(ownerId, productId, created.id);
   await setPrice(created.id, priceBody(input));
   await setStock(created.id, stockBody(0));
+
+  // Fotos: a Loja Integrada baixa cada uma pelo link público do Seller Hub.
+  const failures: string[] = [];
+  const photos = await imagesOf(ownerId, productId);
+  for (const [index, photo] of photos.entries()) {
+    try {
+      await createProductImage(imagePayload(created.id, publicImageUrl(photo.id), index, photo.content_type));
+    } catch (err) {
+      failures.push((err as Error).message);
+    }
+  }
+  if (failures.length) throw new Error(`Produto enviado, mas ${failures.length} foto(s) falharam: ${failures[0]}`);
   return created.id;
 }

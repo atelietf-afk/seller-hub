@@ -72,3 +72,14 @@ export function sendProblems(p: ProductInput): string[] {
   if (p.price == null || p.price <= 0) problems.push("Informe o preço de venda.");
   return problems;
 }
+
+/** Foto do produto: a primeira é a principal (posição 0, exigida pela API para a principal). */
+export function imagePayload(remoteProductId: number, imageUrl: string, index: number, mime: string) {
+  return {
+    imagem_url: imageUrl,
+    mime,
+    posicao: index,
+    principal: index === 0,
+    produto: `/api/v1/produto/${remoteProductId}`,
+  };
+}

@@ -44,3 +44,5 @@ export async function listCategories(): Promise<{ id: number; nome: string }[]> 
 
 export const createCategory = (nome: string) =>
   call<{ id: number }>("POST", "/categoria", { id_externo: null, nome, descricao: null, categoria_pai: null });
+
+export const createProductImage = (body: unknown) => call<{ id: number }>("POST", "/produto_imagem", body);

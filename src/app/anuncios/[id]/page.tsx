@@ -130,8 +130,8 @@ export default async function ProductPage({
         ) : (
           <>
             <p className="text-sm text-ink-2">
-              O produto entra <strong>inativo</strong> e com estoque zerado. Você revisa e ativa no painel. Sem categoria, sem medidas e sem
-              peso: esses dados você completa lá.
+              O produto entra <strong>inativo</strong> e com estoque zerado. Você revisa e ativa no painel. Sem medidas e sem peso: esses
+              dados você completa lá. As fotos desta página vão junto, na ordem em que foram enviadas (a primeira é a principal).
             </p>
             <details className="rounded-md border border-line p-3 text-xs">
               <summary className="cursor-pointer font-medium">Ver o que será enviado</summary>

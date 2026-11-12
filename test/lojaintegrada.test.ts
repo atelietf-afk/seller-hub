@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { priceBody, productBody, sameCategory, sendProblems, slugOf, stockBody } from "@/lib/lojaintegrada/payload";
+import { imagePayload, priceBody, productBody, sameCategory, sendProblems, slugOf, stockBody } from "@/lib/lojaintegrada/payload";
 
 describe("envio à Loja Integrada", () => {
   const p = { name: "Caneca Personalizada & Nome", description: "Cerâmica 300 ml\n\nFeita à mão <3", sku: "CAN-1", price: 49.9, cost: 20 };
@@ -38,5 +38,16 @@ describe("envio à Loja Integrada", () => {
     expect(sendProblems(p)).toEqual([]);
     expect(sendProblems({ ...p, sku: "  " })[0]).toMatch(/SKU/);
     expect(sendProblems({ ...p, price: null })[0]).toMatch(/preço/);
+  });
+
+  it("a primeira foto é a principal, na posição 0, ligada ao produto criado", () => {
+    expect(imagePayload(55, "https://seller/api/imagens/abc", 0, "image/png")).toEqual({
+      imagem_url: "https://seller/api/imagens/abc",
+      mime: "image/png",
+      posicao: 0,
+      principal: true,
+      produto: "/api/v1/produto/55",
+    });
+    expect(imagePayload(55, "https://seller/api/imagens/def", 2, "image/jpeg")).toMatchObject({ principal: false, posicao: 2 });
   });
 });
