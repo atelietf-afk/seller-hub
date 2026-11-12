@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache";
 import { generateListings } from "@/lib/ai/listings";
 import * as catalog from "@/lib/data/catalog";
 import { trendsFor } from "@/lib/data/spy";
+import { imagesOf } from "@/lib/data/images";
+import { captionProblem } from "@/lib/analytics/images";
+import { instagramConfigured, publicImageUrl, publishPhoto } from "@/lib/instagram";
 import { parseMoney } from "@/lib/format";
 import { requirePermission } from "@/lib/session";
 
@@ -40,4 +43,30 @@ export async function createProductAction(formData: FormData) {
   );
   revalidatePath("/anuncios");
   redirect(`/anuncios/${id}`);
+}
+
+/** Publica uma foto do produto no Instagram. Só roda com a confirmação marcada na tela. */
+export async function publishInstagramAction(formData: FormData) {
+  const { ownerId } = await requirePermission("operar");
+  const productId = String(formData.get("productId") ?? "");
+  const imageId = String(formData.get("imageId") ?? "");
+  const caption = String(formData.get("caption") ?? "");
+  const back = (msg: string) => redirect(`/anuncios/${productId}?ig=${encodeURIComponent(msg)}#instagram`);
+
+  if (formData.get("confirmo") !== "on") back("confirme");
+  const problem = captionProblem(caption);
+  if (problem) back(problem);
+  if (!instagramConfigured()) back("Instagram ainda não configurado no servidor.");
+  const owned = (await imagesOf(ownerId, productId)).some((i) => i.id === imageId);
+  if (!owned) back("Foto não encontrada.");
+
+  try {
+    const mediaId = await publishPhoto(publicImageUrl(imageId), caption);
+    console.info("Post publicado no Instagram", productId, mediaId);
+  } catch (err) {
+    console.error("Publicação no Instagram falhou", err);
+    back(`A Meta recusou: ${(err as Error).message}`);
+  }
+  revalidatePath(`/anuncios/${productId}`);
+  back("publicado");
 }

@@ -31,6 +31,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let amazonSync: typeof import("@/lib/amazon/sync");
   let amazonTokens: typeof import("@/lib/amazon/tokens");
   let catalog: typeof import("@/lib/data/catalog");
+  let images: typeof import("@/lib/data/images");
   let team: typeof import("@/lib/data/team");
   const A = "user-a";
   const B = "user-b";
@@ -67,6 +68,7 @@ describe.skipIf(!url)("banco de dados", () => {
     amazonSync = await import("@/lib/amazon/sync");
     amazonTokens = await import("@/lib/amazon/tokens");
     catalog = await import("@/lib/data/catalog");
+    images = await import("@/lib/data/images");
     team = await import("@/lib/data/team");
 
     await db.query("drop schema public cascade; create schema public;");
@@ -1039,6 +1041,20 @@ describe.skipIf(!url)("banco de dados", () => {
     ]);
     expect(await catalog.listingsOf(B, id)).toEqual([]);
     expect(await catalog.mlCategoriesOf(A)).toEqual([]);
+    await db.query("delete from catalog_products where id = $1", [id]);
+  });
+
+  it("fotos de produto: só o dono envia e lista; o endereço público devolve a foto sem dados do dono", async () => {
+    const id = await catalog.createProduct(A, { sku: null, name: "Vaso", description: "Barro", price: null, cost: null });
+    const img = await images.addImage(A, id, "image/png", Buffer.from("png-bytes"));
+    expect((await images.imagesOf(A, id)).map((i) => i.id)).toEqual([img]);
+    expect(await images.imagesOf(B, id)).toEqual([]); // outro vendedor não vê
+    await expect(images.addImage(B, id, "image/png", Buffer.from("x"))).rejects.toThrow(/não encontrado/);
+    expect((await images.publicImage(img))?.content_type).toBe("image/png");
+    await images.removeImage(B, img); // outro vendedor não apaga
+    expect((await images.imagesOf(A, id)).length).toBe(1);
+    await images.removeImage(A, img);
+    expect(await images.publicImage(img)).toBeNull();
     await db.query("delete from catalog_products where id = $1", [id]);
   });
 

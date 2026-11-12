@@ -1,15 +1,32 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { publishInstagramAction } from "../actions";
+import { ImageUpload } from "../ImageUpload";
 import { CopyButton } from "@/components/CopyButton";
+import { instagramConfigured, publicImageUrl } from "@/lib/instagram";
+import { imagesOf } from "@/lib/data/images";
 import { PLATFORM_LABEL, PLATFORMS, TITLE_MAX, titleProblems, type Platform } from "@/lib/analytics/listings";
 import * as catalog from "@/lib/data/catalog";
 import { brl, dateOnly } from "@/lib/format";
 import { currentAccount } from "@/lib/session";
 
 // Anúncio de cada loja, pronto para copiar e colar. Nada é publicado daqui automaticamente.
-export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
+const IG_MESSAGES: Record<string, string> = {
+  publicado: "Post publicado no Instagram.",
+  confirme: "Marque a caixa para confirmar a publicação.",
+};
+
+export default async function ProductPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ ig?: string }>;
+}) {
+  const { ig } = await searchParams;
   const { ownerId } = await currentAccount();
   const { id } = await params;
+  const images = await imagesOf(ownerId, id);
   const product = await catalog.productOf(ownerId, id);
   if (!product) notFound();
   const listings = await catalog.listingsOf(ownerId, id);
@@ -52,6 +69,51 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           Shopee e Amazon não oferecem busca pública de palavras. Por isso, nessas lojas, as palavras-chave são sugestões: confira no
           próprio app antes de usar.
         </p>
+      </section>
+
+      <section id="instagram" className="space-y-4 rounded-xl border border-line bg-surface p-5">
+        <h2 className="font-semibold">Fotos e Instagram</h2>
+        <p className="text-sm text-ink-2">
+          Envie a foto do produto. Ela fica num endereço público do Seller Hub, e é desse endereço que o Instagram baixa a imagem.
+        </p>
+        <ImageUpload productId={product.id} />
+        {images.length > 0 && (
+          <ul className="grid gap-4 sm:grid-cols-2">
+            {images.map((img) => (
+              <li key={img.id} className="space-y-2 rounded-md border border-line p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element -- foto do próprio produto, servida pela rota pública */}
+                <img src={`/api/imagens/${img.id}`} alt={product.name} className="h-40 w-full rounded object-cover" />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs text-muted">{publicImageUrl(img.id)}</span>
+                  <CopyButton text={publicImageUrl(img.id)} label="Copiar link" />
+                </div>
+                {instagramConfigured() ? (
+                  <form action={publishInstagramAction} className="space-y-2">
+                    <input type="hidden" name="productId" value={product.id} />
+                    <input type="hidden" name="imageId" value={img.id} />
+                    <textarea
+                      name="caption"
+                      rows={4}
+                      defaultValue={`${product.name}\n\n#artesanal #ateliê #presente`}
+                      className="w-full rounded-md border border-line bg-bg px-3 py-2 text-sm"
+                    />
+                    <label className="flex items-center gap-2 text-xs">
+                      <input type="checkbox" name="confirmo" /> Confirmo que quero publicar esta foto e esta legenda no Instagram
+                    </label>
+                    <button className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white">Publicar no Instagram</button>
+                  </form>
+                ) : (
+                  <p className="text-xs text-muted">Instagram ainda não configurado no servidor.</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {ig && (
+          <p className={`rounded-md p-3 text-sm ${ig === "publicado" ? "bg-good/10" : "bg-critical/10 text-critical"}`}>
+            {IG_MESSAGES[ig] ?? ig}
+          </p>
+        )}
       </section>
 
       {PLATFORMS.map((p) => {

@@ -2,7 +2,7 @@ import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 import { canonicalRedirect } from "@/lib/canonical";
 
-const PUBLIC_PATHS = ["/login", "/api/auth", "/api/ml/notifications", "/api/cron"];
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/ml/notifications", "/api/cron", "/api/imagens"];
 
 // Checagem rápida: sem cookie de sessão, vai para /login. A validação de verdade
 // acontece no servidor (src/lib/session.ts) em cada página e ação.
