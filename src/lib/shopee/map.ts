@@ -51,7 +51,9 @@ export function mapItem(i: ShopeeItemBase, shopId: number, model?: { price: numb
 }
 
 /** Variações: menor preço e estoque somado. */
-export function summarizeModels(models: { price_info?: { current_price: number }[]; stock_info_v2?: { summary_info?: { total_available_stock?: number } } }[]) {
+export function summarizeModels(
+  models: { price_info?: { current_price: number }[]; stock_info_v2?: { summary_info?: { total_available_stock?: number } } }[],
+) {
   const prices = models.map((m) => m.price_info?.[0]?.current_price).filter((p): p is number => typeof p === "number" && p > 0);
   return {
     price: prices.length ? Math.min(...prices) : 0,

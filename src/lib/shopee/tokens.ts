@@ -38,8 +38,9 @@ export async function validShopeeToken(accountId: string, shopId: number): Promi
   try {
     await client.query("begin");
     await client.query("select pg_advisory_xact_lock(hashtext('shopee_token:' || $1))", [accountId]);
-    const current = (await client.query<TokenRow>("select access_token, refresh_token, expires_at from shopee_tokens where account_id = $1", [accountId]))
-      .rows[0];
+    const current = (
+      await client.query<TokenRow>("select access_token, refresh_token, expires_at from shopee_tokens where account_id = $1", [accountId])
+    ).rows[0];
     if (isFresh(current)) {
       await client.query("commit");
       return decrypt(current.access_token);

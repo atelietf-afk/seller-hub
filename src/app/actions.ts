@@ -23,6 +23,7 @@ import { saveCompetitorSnapshot } from "@/lib/ml/spy-sync";
 import { apiFor } from "@/lib/ml/tokens";
 import { parseMoney } from "@/lib/format";
 import { syncAnyAccount } from "@/lib/sync";
+import { boostShopeeItems } from "@/lib/shopee/boost";
 import { ACCOUNT_COOKIE, currentAccount, INVITE_COOKIE, requirePermission, signedInUser } from "@/lib/session";
 import { isMemberRole, normalizeEmail, validEmail, type Permission } from "@/lib/analytics/team";
 import * as teamData from "@/lib/data/team";
@@ -616,4 +617,14 @@ export async function acceptInviteAction(formData: FormData) {
     });
   revalidatePath("/", "layout");
   redirect("/dashboard");
+}
+
+/** Impulsiona agora os 5 produtos com estoque da loja Shopee escolhida (mesma regra do automático). */
+export async function boostShopeeNowAction() {
+  const { account } = await requirePermission("gerenciar");
+  if (!account || account.marketplace !== "shopee") redirect("/configuracoes?impulso=sem-shopee#impulso");
+  const result = await boostShopeeItems(account.id);
+  console.info("Impulsionamento manual", account.id, JSON.stringify(result));
+  revalidatePath("/configuracoes");
+  redirect(`/configuracoes?impulso=${result.boosted}&falhas=${result.failed.length}#impulso`);
 }

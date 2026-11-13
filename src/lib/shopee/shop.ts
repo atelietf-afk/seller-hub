@@ -4,10 +4,20 @@ import type { ShopeeEscrow, ShopeeItemBase, ShopeeOrderDetail } from "./map";
 // Chamadas da loja usadas na sincronização. Limites da Shopee: 50 ids por consulta de
 // detalhes, 100 por página de lista e janelas de no máximo 15 dias na busca de pedidos.
 
-type ModelList = { model?: { price_info?: { current_price: number }[]; stock_info_v2?: { summary_info?: { total_available_stock?: number } } }[] };
+type ModelList = {
+  model?: { price_info?: { current_price: number }[]; stock_info_v2?: { summary_info?: { total_available_stock?: number } } }[];
+};
 
 export class ShopeeShop {
   constructor(private api: ShopeeApi) {}
+
+  /** Impulsiona até 5 produtos. A resposta separa os que subiram dos que falharam, com o motivo. */
+  boostItems(itemIds: number[]) {
+    return this.api.post<{
+      success_list?: { item_id_list?: number[] };
+      failure_list?: { item_id: number; failed_reason: string }[];
+    }>("/api/v2/product/boost_item", { item_id_list: itemIds });
+  }
 
   shopInfo() {
     return this.api.get<{ shop_name?: string; region?: string }>("/api/v2/shop/get_shop_info");
@@ -30,7 +40,9 @@ export class ShopeeShop {
   async itemsBase(ids: number[]): Promise<ShopeeItemBase[]> {
     const out: ShopeeItemBase[] = [];
     for (let i = 0; i < ids.length; i += 50) {
-      const r = await this.api.get<{ item_list?: ShopeeItemBase[] }>("/api/v2/product/get_item_base_info", { item_id_list: ids.slice(i, i + 50) });
+      const r = await this.api.get<{ item_list?: ShopeeItemBase[] }>("/api/v2/product/get_item_base_info", {
+        item_id_list: ids.slice(i, i + 50),
+      });
       out.push(...(r.item_list ?? []));
     }
     return out;
@@ -45,13 +57,16 @@ export class ShopeeShop {
     const sns: string[] = [];
     let cursor = "";
     for (let page = 0; page < 200; page++) {
-      const r = await this.api.get<{ order_list?: { order_sn: string }[]; more?: boolean; next_cursor?: string }>("/api/v2/order/get_order_list", {
-        time_range_field: field,
-        time_from: from,
-        time_to: to,
-        page_size: 100,
-        cursor,
-      });
+      const r = await this.api.get<{ order_list?: { order_sn: string }[]; more?: boolean; next_cursor?: string }>(
+        "/api/v2/order/get_order_list",
+        {
+          time_range_field: field,
+          time_from: from,
+          time_to: to,
+          page_size: 100,
+          cursor,
+        },
+      );
       sns.push(...(r.order_list ?? []).map((o) => o.order_sn));
       if (!r.more || !r.next_cursor) break;
       cursor = r.next_cursor;

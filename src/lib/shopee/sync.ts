@@ -71,9 +71,12 @@ export async function syncShopee(accountId: string): Promise<ShopeeSyncResult> {
 
   const details: ShopeeOrderDetail[] = await shop.orderDetails([...sns]);
   const existing = new Map(
-    (await query<Existing>("select id, status, shipping_cost from orders where account_id = $1 and id = any($2::text[])", [accountId, [...sns]])).map(
-      (e) => [e.id, e],
-    ),
+    (
+      await query<Existing>("select id, status, shipping_cost from orders where account_id = $1 and id = any($2::text[])", [
+        accountId,
+        [...sns],
+      ])
+    ).map((e) => [e.id, e]),
   );
   // Extrato só quando muda algo: pedido novo, mudou de situação ou ainda sem taxas.
   let escrows = 0;
@@ -91,7 +94,9 @@ export async function syncShopee(accountId: string): Promise<ShopeeSyncResult> {
   }
   await saveOrders(accountId, mapped);
 
-  const fresh = mapped.filter((o) => !existing.has(o.id) && o.status === "paid" && new Date(o.date_created).getTime() > now.getTime() - 2 * DAY);
+  const fresh = mapped.filter(
+    (o) => !existing.has(o.id) && o.status === "paid" && new Date(o.date_created).getTime() > now.getTime() - 2 * DAY,
+  );
   await pushEvents(
     accountId,
     fresh.map((o) => ({
@@ -105,10 +110,11 @@ export async function syncShopee(accountId: string): Promise<ShopeeSyncResult> {
   );
 
   const info = await shop.shopInfo().catch(() => null);
-  await query(
-    `update ml_accounts set nickname = coalesce($2, nickname), last_synced_at = now(), orders_history_since = $3 where id = $1`,
-    [accountId, info?.shop_name ?? null, historySince.toISOString()],
-  );
+  await query(`update ml_accounts set nickname = coalesce($2, nickname), last_synced_at = now(), orders_history_since = $3 where id = $1`, [
+    accountId,
+    info?.shop_name ?? null,
+    historySince.toISOString(),
+  ]);
   const result: ShopeeSyncResult = {
     items: items.length,
     orders: mapped.length,

@@ -31,6 +31,7 @@ describe.skipIf(!url)("banco de dados", () => {
   let amazonSync: typeof import("@/lib/amazon/sync");
   let amazonTokens: typeof import("@/lib/amazon/tokens");
   let catalog: typeof import("@/lib/data/catalog");
+  let shopeeBoost: typeof import("@/lib/shopee/boost");
   let images: typeof import("@/lib/data/images");
   let team: typeof import("@/lib/data/team");
   const A = "user-a";
@@ -68,6 +69,7 @@ describe.skipIf(!url)("banco de dados", () => {
     amazonSync = await import("@/lib/amazon/sync");
     amazonTokens = await import("@/lib/amazon/tokens");
     catalog = await import("@/lib/data/catalog");
+    shopeeBoost = await import("@/lib/shopee/boost");
     images = await import("@/lib/data/images");
     team = await import("@/lib/data/team");
 
@@ -1056,6 +1058,63 @@ describe.skipIf(!url)("banco de dados", () => {
     await images.removeImage(A, img);
     expect(await images.publicImage(img)).toBeNull();
     await db.query("delete from catalog_products where id = $1", [id]);
+  });
+
+  it("impulsionamento Shopee: escolhe 5 com estoque, grava os que subiram e não repete em 4 horas", async () => {
+    process.env.SHOPEE_PARTNER_ID = "2001887";
+    process.env.SHOPEE_PARTNER_KEY = "chave";
+    const shop = (await data.linkShopeeShop(A, { id: 888, name: "loja_boost" }))!;
+    await shopeeTokens.saveShopeeTokens(shop.id, { access_token: "tok", refresh_token: "ref", expire_in: 14400 });
+    // 7 produtos: 1 sem estoque, 1 inativo; sobram 5 elegíveis
+    for (let i = 1; i <= 7; i++) {
+      await db.query(
+        `insert into items (id, account_id, title, price, available_quantity, sold_quantity, status) values ($1, $2, 'P', 10, $3, 0, $4)`,
+        [`SHP${i}`, shop.id, i === 1 ? 0 : 5, i === 2 ? "closed" : "active"],
+      );
+    }
+    const sent: number[][] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = new URL(String(url));
+        if (u.pathname !== "/api/v2/product/boost_item") return new Response("{}", { status: 404 });
+        expect(init?.method).toBe("POST");
+        const ids = JSON.parse(String(init?.body)).item_id_list as number[];
+        sent.push(ids);
+        // o 3 falha (motivo da documentação); os demais sobem
+        return new Response(
+          JSON.stringify({
+            error: "",
+            message: "",
+            response: {
+              success_list: { item_id_list: ids.filter((n) => n !== 3) },
+              failure_list: ids.filter((n) => n === 3).map((n) => ({ item_id: n, failed_reason: "can not boost item repeatedly" })),
+            },
+          }),
+        );
+      }),
+    );
+    try {
+      const now = new Date();
+      const first = await shopeeBoost.boostShopeeItems(shop.id, now);
+      expect(first).toMatchObject({ picked: 5, boosted: 4 });
+      expect([...sent[0]].sort((a, b) => a - b)).toEqual([3, 4, 5, 6, 7]); // só os 5 elegíveis
+      expect(sent[0]).not.toContain(1); // sem estoque
+      expect(sent[0]).not.toContain(2); // inativo
+      const recorded = await db.query<{ item_id: string }>("select item_id from shopee_boosts where account_id = $1 order by item_id", [
+        shop.id,
+      ]);
+      expect(recorded.map((r) => r.item_id)).toEqual(sent[0].filter((n) => n !== 3).map((n) => `SHP${n}`));
+      // 1 hora depois: só sobra o que não subiu ainda (SHP3), e o resto está em intervalo de 4 horas
+      const later = await shopeeBoost.boostShopeeItems(shop.id, new Date(now.getTime() + 3600_000));
+      expect(later.picked).toBe(1);
+      expect(sent[1]).toEqual([3]);
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.SHOPEE_PARTNER_ID;
+      delete process.env.SHOPEE_PARTNER_KEY;
+    }
+    await db.query("delete from ml_accounts where id = $1", [shop.id]);
   });
 
   it("equipe: convite só para o e-mail convidado, uma vez, e acesso só às lojas de quem convidou", async () => {

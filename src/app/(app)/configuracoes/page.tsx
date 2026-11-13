@@ -1,6 +1,14 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
-import { changeMemberRole, disconnectAccount, inviteMember, removeMemberAction, revokeInviteAction, saveSettings } from "../../actions";
+import {
+  boostShopeeNowAction,
+  changeMemberRole,
+  disconnectAccount,
+  inviteMember,
+  removeMemberAction,
+  revokeInviteAction,
+  saveSettings,
+} from "../../actions";
 import { CopyButton } from "@/components/CopyButton";
 import { can, ROLE_HINT, ROLE_LABEL, type MemberRole } from "@/lib/analytics/team";
 import { pendingInvites, teamOf } from "@/lib/data/team";
@@ -39,9 +47,14 @@ const TEAM_MSG: Record<string, { ok: boolean; text: string }> = {
 };
 const MEMBER_ROLES: MemberRole[] = ["gerente", "operador", "leitura"];
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ ml?: string; equipe?: string }> }) {
-  const { user, accounts, ownerId, role, ownerEmails } = await currentAccount();
-  const { ml, equipe } = await searchParams;
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ml?: string; equipe?: string; impulso?: string; falhas?: string }>;
+}) {
+  const { user, account, accounts, ownerId, role, ownerEmails } = await currentAccount();
+  const sp = await searchParams;
+  const { ml, equipe } = sp;
   const s = await settingsOf(ownerId);
   const ownAccounts = accounts.filter((a) => a.owner_id === user.id);
   const isOwner = role === "dono";
@@ -61,6 +74,29 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           Você está vendo a loja da equipe de <strong>{ownerEmails.get(ownerId) ?? "outro usuário"}</strong> com o perfil{" "}
           <strong>{ROLE_LABEL[role]}</strong>. Para ver as suas próprias lojas, troque no seletor do topo.
         </p>
+      )}
+
+      {account?.marketplace === "shopee" && (
+        <section id="impulso" className="space-y-3 rounded-xl border border-line bg-surface p-5">
+          <h2 className="font-semibold">Impulsionar na Shopee</h2>
+          <p className="text-sm text-ink-2">
+            Impulsiona 5 produtos com estoque, os que estão há mais tempo sem impulsionamento, sem repetir nas últimas 4 horas. O automático
+            roda a cada 4 horas quando o agendador externo está configurado.
+          </p>
+          {sp.impulso && sp.impulso !== "sem-shopee" && (
+            <p className="rounded-md bg-good/10 p-3 text-sm">
+              {sp.impulso} produto(s) impulsionado(s).
+              {Number(sp.falhas) > 0 ? ` ${sp.falhas} não puderam ser impulsionados (veja os logs).` : ""}
+            </p>
+          )}
+          {canManage && (
+            <form action={boostShopeeNowAction}>
+              <SubmitButton variant="primary" pending="Impulsionando…">
+                Impulsionar agora
+              </SubmitButton>
+            </form>
+          )}
+        </section>
       )}
 
       <section className="flex items-center justify-between rounded-xl border border-line bg-surface p-5">
@@ -83,10 +119,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <span className="font-medium">{a.nickname}</span>
               <span className="text-muted">ID {a.external_id ?? a.ml_user_id}</span>
               {!a.connected && (
-                <Link
-                  href={CONNECT_PATH[a.marketplace]}
-                  className="text-xs font-medium text-critical underline"
-                >
+                <Link href={CONNECT_PATH[a.marketplace]} className="text-xs font-medium text-critical underline">
                   Conexão incompleta: reconectar
                 </Link>
               )}

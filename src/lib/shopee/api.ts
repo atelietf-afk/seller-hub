@@ -49,6 +49,27 @@ export class ShopeeApi {
     return `${this.cfg.host}${path}?${q}`;
   }
 
+  /** POST com corpo JSON: os parâmetros comuns vão na URL, o corpo leva os dados da ação. */
+  async post<T>(path: string, body: unknown): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      const res = await this.fetchFn(await this.url(path, {}), {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      });
+      const json = (await res.json().catch(() => null)) as { error?: string; message?: string; response?: T } | null;
+      if ((res.status === 429 || res.status >= 500 || json?.error === "error_busy") && attempt < 3) {
+        await new Promise((r) => setTimeout(r, retryDelay(attempt)));
+        continue;
+      }
+      if (!res.ok || (json?.error && json.error !== "")) {
+        throw new ShopeeApiError(res.status, path, json?.error ?? "http", json?.message ?? "");
+      }
+      return (json?.response ?? ({} as T)) as T;
+    }
+  }
+
   async get<T>(path: string, params: Params = {}): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       const res = await this.fetchFn(await this.url(path, params), { headers: { Accept: "application/json" }, cache: "no-store" });
