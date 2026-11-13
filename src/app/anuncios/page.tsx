@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { createProductAction } from "./actions";
+import { Badge, ButtonLink, Card, Notice, SectionTitle } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { PLATFORM_LABEL, PLATFORMS } from "@/lib/analytics/listings";
 import * as catalog from "@/lib/data/catalog";
-import { dateOnly, brl } from "@/lib/format";
+import { brl, dateOnly } from "@/lib/format";
 import { currentAccount } from "@/lib/session";
 
 const ERRORS: Record<string, string> = {
@@ -11,95 +12,125 @@ const ERRORS: Record<string, string> = {
   ia: "Não conseguimos gerar os anúncios agora. Tente de novo em alguns minutos.",
 };
 
-// Cadastro único: o que é o produto. Os anúncios de cada loja saem daqui.
+const inputClass = "mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm";
+
+// Lista de produtos: cadastro único. Cada produto gera o anúncio de cada loja.
 export default async function AnunciosPage({ searchParams }: { searchParams: Promise<{ erro?: string }> }) {
   const { ownerId } = await currentAccount();
   const { erro } = await searchParams;
   const products = await catalog.productsOf(ownerId);
+  const sent = products.filter((p) => p.loja_integrada_id).length;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Anúncios</h1>
-        <p className="text-sm text-ink-2">
-          Cadastre o produto uma vez. O Seller Hub escreve o anúncio de cada loja ({PLATFORMS.map((p) => PLATFORM_LABEL[p]).join(", ")}) com
-          as regras de cada uma e as buscas em alta do Mercado Livre. Nada é publicado sem você revisar.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Anúncios</h1>
+          <p className="mt-1 max-w-2xl text-sm text-ink-2">
+            Cadastre o produto uma vez. O Seller Hub escreve o anúncio de cada loja ({PLATFORMS.map((p) => PLATFORM_LABEL[p]).join(", ")}),
+            com as regras de cada uma. Nada é publicado sem você revisar.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <ButtonLink href="/anuncios/video" variant="secondary">
+            Editor de vídeo
+          </ButtonLink>
+          <ButtonLink href="#novo">+ Novo produto</ButtonLink>
+        </div>
+      </header>
+
+      {erro && <Notice tone="critical">{ERRORS[erro] ?? erro}</Notice>}
+
+      <div className="grid grid-cols-3 gap-3 sm:max-w-md">
+        <Stat label="Produtos" value={products.length} />
+        <Stat label="Enviados à Loja Integrada" value={sent} />
+        <Stat label="Ainda não enviados" value={products.length - sent} />
       </div>
 
-      <Link href="/anuncios/video" className="inline-block rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium">
-        Editor de vídeo para as lojas →
-      </Link>
-
-      {erro && <p className="rounded-md bg-critical/10 p-3 text-sm text-critical">{ERRORS[erro] ?? erro}</p>}
-
-      <form action={createProductAction} className="space-y-4 rounded-xl border border-line bg-surface p-5">
-        <h2 className="font-semibold">Novo produto</h2>
-        <label className="block text-sm">
-          Nome do produto
-          <input
-            name="name"
-            required
-            placeholder="Ex.: Caneca personalizada com nome"
-            className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
-          />
-        </label>
-        <label className="block text-sm">
-          Descrição do que você sabe sobre ele
-          <textarea
-            name="description"
-            required
-            rows={5}
-            placeholder="Material, medidas, cores, o que vem na embalagem, personalização, tempo de produção, para quem é presente…"
-            className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
-          />
-          <span className="mt-1 block text-xs text-muted">Só o que você confirma: a IA não inventa material, medida nem garantia.</span>
-        </label>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block text-sm">
-            Preço de venda (R$)
-            <input
-              name="price"
-              inputMode="decimal"
-              placeholder="89,90"
-              className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm">
-            Custo (R$)
-            <input
-              name="cost"
-              inputMode="decimal"
-              placeholder="32,00"
-              className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm">
-            SKU (opcional)
-            <input name="sku" className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2" />
-          </label>
-        </div>
-        <SubmitButton variant="primary" pending="Gerando anúncios… leva alguns segundos">
-          Gerar anúncios das lojas
-        </SubmitButton>
-      </form>
-
-      <section className="rounded-xl border border-line bg-surface p-5">
-        <h2 className="font-semibold">Produtos cadastrados</h2>
-        {!products.length && <p className="mt-2 text-sm text-ink-2">Nenhum produto ainda.</p>}
-        <ul className="mt-3 divide-y divide-line text-sm">
+      {products.length === 0 ? (
+        <Card>
+          <SectionTitle title="Nenhum produto ainda" hint="Comece cadastrando o primeiro produto. Leva menos de um minuto." />
+          <ButtonLink href="#novo">+ Cadastrar produto</ButtonLink>
+        </Card>
+      ) : (
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {products.map((p) => (
-            <li key={p.id} className="flex items-center justify-between gap-3 py-2.5">
-              <Link href={`/anuncios/${p.id}`} className="font-medium hover:underline">
-                {p.name}
+            <li key={p.id}>
+              <Link
+                href={`/anuncios/${p.id}`}
+                className="block h-full space-y-3 rounded-xl border border-line bg-surface p-5 transition hover:border-accent hover:shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold leading-snug">{p.name}</p>
+                  {p.loja_integrada_id ? <Badge tone="good">Na Loja Integrada</Badge> : <Badge>Rascunho</Badge>}
+                </div>
+                <p className="text-sm text-ink-2">
+                  {p.price != null ? brl(p.price) : "Sem preço"}
+                  {p.sku ? ` · SKU ${p.sku}` : ""}
+                </p>
+                <p className="text-xs text-muted">Cadastrado em {dateOnly(p.created_at)}</p>
+                <span className="inline-block text-sm font-medium text-accent">Abrir →</span>
               </Link>
-              <span className="text-xs text-muted">
-                {p.price != null ? brl(p.price) : "sem preço"} · {dateOnly(p.created_at)}
-              </span>
             </li>
           ))}
         </ul>
-      </section>
+      )}
+
+      <details id="novo" open={products.length === 0 || !!erro} className="scroll-mt-24 rounded-xl border border-line bg-surface p-5">
+        <summary className="cursor-pointer list-none text-base font-semibold">
+          <span className="inline-flex items-center gap-2">+ Novo produto</span>
+          <span className="ml-2 text-sm font-normal text-ink-2">clique para abrir ou fechar</span>
+        </summary>
+        <form action={createProductAction} className="mt-5 space-y-5">
+          <div>
+            <label className="block text-sm font-medium">
+              Nome do produto
+              <input name="name" required placeholder="Ex.: Caneca personalizada com nome" className={inputClass} />
+            </label>
+          </div>
+          <div>
+            <label className="block text-sm font-medium">
+              O que você sabe sobre ele
+              <textarea
+                name="description"
+                required
+                rows={5}
+                placeholder="Material, medidas, cores, o que vem na embalagem, personalização, tempo de produção, para quem é presente…"
+                className={inputClass}
+              />
+              <span className="mt-1 block text-xs font-normal text-muted">
+                Escreva só o que você confirma. A IA não inventa material, medida nem garantia.
+              </span>
+            </label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="block text-sm font-medium">
+              Preço de venda (R$)
+              <input name="price" inputMode="decimal" placeholder="89,90" className={inputClass} />
+            </label>
+            <label className="block text-sm font-medium">
+              Custo (R$)
+              <input name="cost" inputMode="decimal" placeholder="32,00" className={inputClass} />
+            </label>
+            <label className="block text-sm font-medium">
+              SKU (opcional)
+              <input name="sku" className={inputClass} />
+            </label>
+          </div>
+          <SubmitButton variant="primary" pending="Gerando anúncios… leva alguns segundos">
+            Gerar anúncios das lojas
+          </SubmitButton>
+        </form>
+      </details>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="mt-0.5 text-xs text-ink-2">{label}</p>
     </div>
   );
 }
