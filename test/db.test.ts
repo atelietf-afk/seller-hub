@@ -1074,6 +1074,19 @@ describe.skipIf(!url)("banco de dados", () => {
     await db.query("delete from catalog_products where id = any($1::uuid[])", [[mine, other]]);
   });
 
+  it("atendimento: a caixa mostra só as perguntas pendentes das lojas do dono", async () => {
+    const inbox = await import("@/lib/data/inbox");
+    const acc = (await data.linkAmazonSeller(A, { id: "AT-SELLER", name: "Loja Atendimento" }))!;
+    await db.query(
+      `insert into questions (id, account_id, item_id, text, status, date_created) values (910001, $1, null, 'Tem em azul?', 'UNANSWERED', now()), (910002, $1, null, 'Já respondida', 'ANSWERED', now())`,
+      [acc.id],
+    );
+    expect((await inbox.inboxOf(A)).map((q) => q.id)).toContain(910001);
+    expect((await inbox.inboxOf(A)).map((q) => q.id)).not.toContain(910002);
+    expect((await inbox.inboxOf(B)).map((q) => q.id)).not.toContain(910001);
+    await db.query("delete from ml_accounts where id = $1", [acc.id]);
+  });
+
   it("fotos de produto: só o dono envia e lista; o endereço público devolve a foto sem dados do dono", async () => {
     const id = await catalog.createProduct(A, { sku: null, name: "Vaso", description: "Barro", price: null, cost: null });
     const img = await images.addImage(A, id, "image/png", Buffer.from("png-bytes"));
