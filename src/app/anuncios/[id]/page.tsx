@@ -7,6 +7,9 @@ import { CopyButton } from "@/components/CopyButton";
 import { PLATFORM_LABEL, PLATFORMS, TITLE_MAX, titleProblems, type Platform } from "@/lib/analytics/listings";
 import { instagramConfigured, publicImageUrl } from "@/lib/instagram";
 import { lojaIntegradaConfigured } from "@/lib/lojaintegrada/client";
+import { minimumPrice } from "@/lib/analytics/pricing";
+import { DEFAULT_TARGET_MARGIN, STORE_FEES } from "@/lib/analytics/store-fees";
+import { settingsOf } from "@/lib/data/accounts";
 import { priceBody, productBody, sendProblems, stockBody } from "@/lib/lojaintegrada/payload";
 import { imagesOf } from "@/lib/data/images";
 import * as catalog from "@/lib/data/catalog";
@@ -43,6 +46,21 @@ export default async function ProductPage({
   const byPlatform = new Map(listings.map((l) => [l.platform, l]));
   const trends = listings[0]?.research?.trendKeywords ?? [];
   const sent = !!product.loja_integrada_id;
+  const settings = await settingsOf(ownerId);
+  const priceRows = (Object.keys(STORE_FEES) as (keyof typeof STORE_FEES)[]).map((k) => ({
+    key: k,
+    ...STORE_FEES[k],
+    min:
+      product.cost != null
+        ? minimumPrice({
+            cost: product.cost,
+            shippingCost: 0,
+            taxRate: settings.tax_rate,
+            fees: STORE_FEES[k],
+            targetMargin: DEFAULT_TARGET_MARGIN,
+          })
+        : null,
+  }));
   const sendInput = { name: product.name, description: product.description, sku: product.sku, price: product.price, cost: product.cost };
   // o SKU é preenchido no próprio formulário de envio, então a mensagem só aparece se o campo não estiver lá
   const problems = sendProblems(sendInput).filter((m) => product.sku || !m.includes("SKU"));
@@ -165,6 +183,45 @@ export default async function ProductPage({
             </form>
           </details>
         )}
+      </Card>
+
+      {/* PREÇO POR LOJA */}
+      <Card id="preco">
+        <SectionTitle
+          title="Preço por loja"
+          hint={`Preço mínimo para sobrar ${Math.round(DEFAULT_TARGET_MARGIN * 100)}% de margem, depois de comissão, taxa, imposto (${(settings.tax_rate * 100).toFixed(0)}%) e custo.`}
+        />
+        {product.cost == null ? (
+          <Notice tone="warning">Informe o custo do produto para calcular o preço mínimo de cada loja.</Notice>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs uppercase tracking-wide text-ink-2">
+                <tr>
+                  <th className="py-2 pr-3 font-semibold">Loja</th>
+                  <th className="py-2 pr-3 font-semibold">Comissão</th>
+                  <th className="py-2 pr-3 font-semibold">Preço mínimo</th>
+                  <th className="py-2 font-semibold">Seu preço atual</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {priceRows.map((r) => (
+                  <tr key={r.key}>
+                    <td className="py-2 pr-3">{r.label}</td>
+                    <td className="py-2 pr-3 text-ink-2">
+                      {(r.commission * 100).toFixed(0)}%{r.fixedFee ? ` + ${brl(r.fixedFee)}` : ""}
+                    </td>
+                    <td className="py-2 pr-3 font-medium">{r.min != null ? brl(r.min) : "não fecha a margem"}</td>
+                    <td className="py-2">{product.price != null ? brl(product.price) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-xs text-muted">
+          As comissões são estimativas. Confira a tabela atual de cada loja e ajuste em <code>src/lib/analytics/store-fees.ts</code>.
+        </p>
       </Card>
 
       {/* 2. LOJA INTEGRADA */}
