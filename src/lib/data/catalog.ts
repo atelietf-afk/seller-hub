@@ -13,6 +13,7 @@ export interface CatalogProduct {
   price: number | null;
   cost: number | null;
   loja_integrada_id: number | null;
+  stock_quantity: number;
   created_at: string;
 }
 
@@ -91,4 +92,15 @@ export async function setLojaIntegradaId(ownerId: string, productId: string, rem
 /** Grava o SKU do produto (exigido pela Loja Integrada), só para produto do próprio dono. */
 export async function setProductSku(ownerId: string, productId: string, sku: string) {
   await query("update catalog_products set sku = $3 where owner_id = $1 and id = $2", [ownerId, productId, sku]);
+}
+
+/** Grava o estoque único do produto (quantidade inteira, nunca negativa). */
+export async function setProductStock(ownerId: string, productId: string, quantity: number) {
+  if (!Number.isInteger(quantity) || quantity < 0) throw new Error("A quantidade precisa ser um número inteiro, zero ou maior.");
+  const row = await one<{ id: string }>("update catalog_products set stock_quantity = $3 where owner_id = $1 and id = $2 returning id", [
+    ownerId,
+    productId,
+    quantity,
+  ]);
+  if (!row) throw new Error("Produto não encontrado");
 }

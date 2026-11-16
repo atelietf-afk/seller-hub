@@ -8,7 +8,7 @@ import { trendsFor } from "@/lib/data/spy";
 import { imagesOf } from "@/lib/data/images";
 import { captionProblem, carouselProblem } from "@/lib/analytics/images";
 import { instagramConfigured, publicImageUrl, publishCarousel, publishPhoto } from "@/lib/instagram";
-import { publishProduct, resendMissingPhotos } from "@/lib/lojaintegrada/publish";
+import { publishProduct, pushStockToLojaIntegrada, resendMissingPhotos } from "@/lib/lojaintegrada/publish";
 import { parseMoney } from "@/lib/format";
 import { requirePermission } from "@/lib/session";
 
@@ -133,4 +133,38 @@ export async function publishInstagramCarouselAction(formData: FormData) {
   }
   revalidatePath(`/anuncios/${productId}`);
   back("publicado");
+}
+
+/** Grava o estoque único do produto e, se ele estiver na Loja Integrada, atualiza a quantidade lá. */
+export async function saveStockAction(formData: FormData) {
+  const { ownerId } = await requirePermission("operar");
+  const productId = String(formData.get("productId") ?? "");
+  const quantity = Number(String(formData.get("quantity") ?? "").trim());
+  const back = (msg: string) => redirect(`/anuncios/${productId}?estoque=${encodeURIComponent(msg)}#estoque`);
+
+  try {
+    await catalog.setProductStock(ownerId, productId, quantity);
+  } catch (err) {
+    back((err as Error).message);
+  }
+
+  const product = await catalog.productOf(ownerId, productId);
+  if (formData.get("atualizar") !== "on" || !product?.loja_integrada_id) {
+    revalidatePath(`/anuncios/${productId}`);
+    back(`Estoque salvo: ${quantity} unidade(s).`);
+  }
+
+  let remoteError: string | null = null;
+  try {
+    await pushStockToLojaIntegrada(ownerId, productId);
+  } catch (err) {
+    console.error("Atualização de estoque na Loja Integrada falhou", err);
+    remoteError = (err as Error).message;
+  }
+  revalidatePath(`/anuncios/${productId}`);
+  back(
+    remoteError
+      ? `Estoque salvo aqui, mas a Loja Integrada recusou: ${remoteError}`
+      : `Estoque salvo (${quantity}) e atualizado na Loja Integrada.`,
+  );
 }

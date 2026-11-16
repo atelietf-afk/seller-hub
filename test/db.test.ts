@@ -1046,6 +1046,17 @@ describe.skipIf(!url)("banco de dados", () => {
     await db.query("delete from catalog_products where id = $1", [id]);
   });
 
+  it("estoque único: só o dono altera a quantidade, e não aceita valor negativo ou fracionado", async () => {
+    const id = await catalog.createProduct(A, { sku: "EST-1", name: "Prato", description: "Cerâmica", price: 30, cost: 10 });
+    await catalog.setProductStock(A, id, 12);
+    expect((await catalog.productOf(A, id))?.stock_quantity).toBe(12);
+    await expect(catalog.setProductStock(B, id, 99)).rejects.toThrow(/não encontrado/); // outro vendedor não altera
+    expect((await catalog.productOf(A, id))?.stock_quantity).toBe(12);
+    await expect(catalog.setProductStock(A, id, -1)).rejects.toThrow(/inteiro/);
+    await expect(catalog.setProductStock(A, id, 1.5)).rejects.toThrow(/inteiro/);
+    await db.query("delete from catalog_products where id = $1", [id]);
+  });
+
   it("fotos de produto: só o dono envia e lista; o endereço público devolve a foto sem dados do dono", async () => {
     const id = await catalog.createProduct(A, { sku: null, name: "Vaso", description: "Barro", price: null, cost: null });
     const img = await images.addImage(A, id, "image/png", Buffer.from("png-bytes"));

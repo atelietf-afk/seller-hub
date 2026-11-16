@@ -26,7 +26,7 @@ export async function publishProduct(ownerId: string, productId: string, categor
   const created = await createProduct(productBody(input, categoryId));
   await catalog.setLojaIntegradaId(ownerId, productId, created.id);
   await setPrice(created.id, priceBody(input));
-  await setStock(created.id, stockBody(0));
+  await setStock(created.id, stockBody(product.stock_quantity));
 
   // Fotos: a Loja Integrada baixa cada uma pelo link público do Seller Hub.
   const failures: string[] = [];
@@ -57,4 +57,13 @@ export async function resendMissingPhotos(ownerId: string, productId: string): P
     await createProductImage(imagePayload(remoteId, publicImageUrl(photo.id, photo.content_type), onStore + offset, photo.content_type));
   }
   return missing.length;
+}
+
+/** Envia a quantidade do estoque único ao produto já cadastrado na Loja Integrada. */
+export async function pushStockToLojaIntegrada(ownerId: string, productId: string): Promise<number> {
+  const product = await catalog.productOf(ownerId, productId);
+  if (!product) throw new Error("Produto não encontrado");
+  if (!product.loja_integrada_id) throw new Error("Envie o produto à Loja Integrada antes de atualizar o estoque.");
+  await setStock(product.loja_integrada_id, stockBody(product.stock_quantity));
+  return product.stock_quantity;
 }

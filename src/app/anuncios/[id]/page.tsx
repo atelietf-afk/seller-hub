@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { publishInstagramAction, publishInstagramCarouselAction, publishLojaIntegradaAction, resendPhotosAction } from "../actions";
+import {
+  publishInstagramAction,
+  publishInstagramCarouselAction,
+  publishLojaIntegradaAction,
+  resendPhotosAction,
+  saveStockAction,
+} from "../actions";
 import { ImageUpload } from "../ImageUpload";
 import { Badge, Card, Notice, SectionTitle, buttonClass } from "@/components/ui";
 import { CopyButton } from "@/components/CopyButton";
@@ -35,9 +41,9 @@ export default async function ProductPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ig?: string; li?: string }>;
+  searchParams: Promise<{ ig?: string; li?: string; estoque?: string }>;
 }) {
-  const { ig, li } = await searchParams;
+  const { ig, li, estoque } = await searchParams;
   const { ownerId } = await currentAccount();
   const { id } = await params;
   const product = await catalog.productOf(ownerId, id);
@@ -183,6 +189,40 @@ export default async function ProductPage({
             </form>
           </details>
         )}
+      </Card>
+
+      {/* ESTOQUE ÚNICO */}
+      <Card id="estoque">
+        <SectionTitle title="Estoque" hint="Uma quantidade só para o produto. Ela vai para as lojas que você escolher." />
+        {estoque && (
+          <Notice tone={estoque.startsWith("Estoque salvo (") || estoque.startsWith("Estoque salvo:") ? "good" : "critical"}>
+            {estoque}
+          </Notice>
+        )}
+        <form action={saveStockAction} className="flex flex-wrap items-end gap-4">
+          <input type="hidden" name="productId" value={product.id} />
+          <label className="block text-sm font-medium">
+            Quantidade disponível
+            <input
+              name="quantity"
+              type="number"
+              min={0}
+              step={1}
+              required
+              defaultValue={product.stock_quantity}
+              className={`${inputClass} w-32`}
+            />
+          </label>
+          {sent && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="atualizar" defaultChecked /> Atualizar também na Loja Integrada
+            </label>
+          )}
+          <button className={buttonClass("primary")}>Salvar estoque</button>
+        </form>
+        <p className="text-xs text-muted">
+          Com quantidade zero, a Loja Integrada deixa o produto indisponível (conforme a configuração de estoque esgotado).
+        </p>
       </Card>
 
       {/* PREÇO POR LOJA */}
