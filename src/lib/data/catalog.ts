@@ -14,6 +14,7 @@ export interface CatalogProduct {
   cost: number | null;
   loja_integrada_id: number | null;
   stock_quantity: number;
+  ativo: boolean;
   created_at: string;
 }
 
@@ -103,4 +104,21 @@ export async function setProductStock(ownerId: string, productId: string, quanti
     quantity,
   ]);
   if (!row) throw new Error("Produto não encontrado");
+}
+
+/** Produtos do dono pelos ids informados (ignora ids de outros donos). */
+export function productsByIds(ownerId: string, ids: string[]) {
+  return query<CatalogProduct>("select * from catalog_products where owner_id = $1 and id = any($2::uuid[])", [ownerId, ids]);
+}
+
+export async function setProductsPrice(ownerId: string, ids: string[], price: number) {
+  await query("update catalog_products set price = $3 where owner_id = $1 and id = any($2::uuid[])", [ownerId, ids, price]);
+}
+
+export async function setProductsStock(ownerId: string, ids: string[], quantity: number) {
+  await query("update catalog_products set stock_quantity = $3 where owner_id = $1 and id = any($2::uuid[])", [ownerId, ids, quantity]);
+}
+
+export async function setProductsActive(ownerId: string, ids: string[], ativo: boolean) {
+  await query("update catalog_products set ativo = $3 where owner_id = $1 and id = any($2::uuid[])", [ownerId, ids, ativo]);
 }

@@ -1057,6 +1057,23 @@ describe.skipIf(!url)("banco de dados", () => {
     await db.query("delete from catalog_products where id = $1", [id]);
   });
 
+  it("atualização em massa: muda só os produtos do dono, e ativar fica local quando não foi enviado", async () => {
+    const { applyBulk } = await import("@/lib/lojaintegrada/bulk");
+    const mine = await catalog.createProduct(A, { sku: "MS-1", name: "Vaso A", description: "Barro", price: 10, cost: 4 });
+    const other = await catalog.createProduct(B, { sku: "MS-2", name: "Vaso B", description: "Barro", price: 10, cost: 4 });
+    const result = await applyBulk(A, [mine, other], "preco", 25);
+    expect(result).toEqual({ done: 1, failed: [] }); // só o produto de A conta; nenhum foi enviado, então só o local muda
+    expect((await catalog.productOf(A, mine))?.price).toBe(25);
+    expect((await catalog.productOf(B, other))?.price).toBe(10); // produto de outro vendedor intacto
+    await applyBulk(A, [mine], "estoque", 4);
+    expect((await catalog.productOf(A, mine))?.stock_quantity).toBe(4);
+    await applyBulk(A, [mine], "ativar", null);
+    expect((await catalog.productOf(A, mine))?.ativo).toBe(true);
+    await applyBulk(A, [mine], "desativar", null);
+    expect((await catalog.productOf(A, mine))?.ativo).toBe(false);
+    await db.query("delete from catalog_products where id = any($1::uuid[])", [[mine, other]]);
+  });
+
   it("fotos de produto: só o dono envia e lista; o endereço público devolve a foto sem dados do dono", async () => {
     const id = await catalog.createProduct(A, { sku: null, name: "Vaso", description: "Barro", price: null, cost: null });
     const img = await images.addImage(A, id, "image/png", Buffer.from("png-bytes"));

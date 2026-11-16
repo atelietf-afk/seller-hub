@@ -52,3 +52,7 @@ export async function countProductImages(remoteProductId: number): Promise<numbe
   const page = await call<{ meta: { total_count: number } }>("GET", `/produto_imagem?produto=${remoteProductId}`, undefined);
   return page.meta.total_count;
 }
+
+/** Produto completo na Loja Integrada (o PUT exige todos os campos, então lemos antes de alterar). */
+export const getProduct = (id: number) => call<Record<string, unknown>>("GET", `/produto/${id}`, undefined);
+export const updateProduct = (id: number, body: unknown) => call<unknown>("PUT", `/produto/${id}`, body);

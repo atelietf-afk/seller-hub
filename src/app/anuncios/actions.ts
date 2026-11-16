@@ -9,6 +9,8 @@ import { imagesOf } from "@/lib/data/images";
 import { captionProblem, carouselProblem } from "@/lib/analytics/images";
 import { instagramConfigured, publicImageUrl, publishCarousel, publishPhoto } from "@/lib/instagram";
 import { publishProduct, pushStockToLojaIntegrada, resendMissingPhotos } from "@/lib/lojaintegrada/publish";
+import { applyBulk } from "@/lib/lojaintegrada/bulk";
+import { bulkProblems, isBulkAction } from "@/lib/analytics/bulk";
 import { parseMoney } from "@/lib/format";
 import { requirePermission } from "@/lib/session";
 
@@ -167,4 +169,28 @@ export async function saveStockAction(formData: FormData) {
       ? `Estoque salvo aqui, mas a Loja Integrada recusou: ${remoteError}`
       : `Estoque salvo (${quantity}) e atualizado na Loja Integrada.`,
   );
+}
+
+/** Aplica preço, estoque, ativação ou desativação a vários produtos selecionados (com confirmação). */
+export async function bulkProductsAction(formData: FormData) {
+  const { ownerId } = await requirePermission("operar");
+  const ids = formData.getAll("ids").map(String).filter(Boolean);
+  const action = formData.get("acao");
+  const raw = String(formData.get("valor") ?? "")
+    .trim()
+    .replace(",", ".");
+  const value = raw === "" ? null : Number(raw);
+  const back: (msg: string) => never = (msg) => redirect(`/anuncios?lote=${encodeURIComponent(msg)}`);
+
+  if (formData.get("confirmo") !== "on") back("Marque a confirmação antes de aplicar.");
+  if (!isBulkAction(action)) back("Escolha uma ação.");
+  const problems = bulkProblems(action, ids.length, action === "preco" || action === "estoque" ? value : null);
+  if (problems.length) back(problems.join(" "));
+
+  const result = await applyBulk(ownerId, ids, action, value);
+  revalidatePath("/anuncios");
+  const failures = result.failed.length
+    ? ` ${result.failed.length} falharam: ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}`
+    : "";
+  back(`${result.done} produto(s) atualizado(s).${failures}`.slice(0, 500));
 }

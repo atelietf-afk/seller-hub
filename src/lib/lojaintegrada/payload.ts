@@ -22,11 +22,11 @@ export function slugOf(text: string): string {
 const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Produto simples. Entra inativo: você revisa no painel antes de ativar. */
-export function productBody(p: ProductInput, categoryId?: number) {
+export function productBody(p: ProductInput, categoryId?: number, ativo = false) {
   return {
     altura: null,
     apelido: slugOf(p.name),
-    ativo: false,
+    ativo,
     categorias: categoryId ? [`/api/v1/categoria/${categoryId}`] : ([] as string[]),
     descricao_completa: p.description
       .split(/\n+/)
